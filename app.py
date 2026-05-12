@@ -8,7 +8,7 @@ import re
 # Configuración de página
 st.set_page_config(page_title="Gestión Contable | UNIVALLE", page_icon="🎓", layout="wide")
 
-# --- CSS DEFINITIVO: ALTO CONTRASTE (MANTENIDO) ---
+# --- CSS DEFINITIVO: ALTO CONTRASTE (INTACTO) ---
 st.markdown("""
     <style>
     .stApp { background-color: #fdf5e6; }
@@ -86,7 +86,7 @@ with st.sidebar:
     st.markdown("---")
     st.write("### PANEL DE CONTROL")
     
-    # CAMBIO 1: Soporte para múltiples archivos
+    # Carga de múltiples bases habilitada
     archivos_csv = st.file_uploader("Cargar base de datos (.csv)", type=['csv'], accept_multiple_files=True)
     
     if archivos_csv:
@@ -101,7 +101,7 @@ with st.sidebar:
         
         if lista_dfs:
             st.session_state.base_siat = pd.concat(lista_dfs, ignore_index=True)
-            st.success(f"✅ {len(archivos_csv)} bases vinculadas")
+            st.success(f"✅ Bases vinculadas")
     
     st.divider()
     if st.button("🗑️ Limpiar sesión", use_container_width=True):
@@ -134,12 +134,12 @@ if st.session_state.base_siat is not None:
                     item = match.iloc[0]
                     if not any(d['CUF'] == cuf for d in st.session_state.registros_finales):
                         st.session_state.registros_finales.append({
-                            "Fecha": item['FECHA DE FACTURA/DUI/DIM'],
+                            "Fecha de Documento": item['FECHA DE FACTURA/DUI/DIM'],
+                            "Número de Factura": item['NUMERO FACTURA'],
                             "Razón Social": item['RAZON SOCIAL PROVEEDOR'],
                             "NIT": item['NIT PROVEEDOR'],
-                            "Nro Factura": item['NUMERO FACTURA'],
-                            "Monto": item['IMPORTE TOTAL COMPRA'],
-                            "CUF": cuf
+                            "CUF": cuf,
+                            "Monto": item['IMPORTE TOTAL COMPRA']
                         })
                         agregados += 1
             except:
@@ -147,8 +147,6 @@ if st.session_state.base_siat is not None:
         
         if agregados > 0:
             st.success(f"Se añadieron {agregados} registros.")
-        else:
-            st.warning("No se encontraron facturas nuevas.")
 
 # --- REPORTE ---
 if st.session_state.registros_finales:
@@ -161,7 +159,7 @@ if st.session_state.registros_finales:
             st.markdown(f"""
             <div class='factura-card'>
                 <strong>{reg['Razón Social']}</strong> | 
-                <small>Factura: {reg['Nro Factura']} | Monto: {reg['Monto']} Bs.</small>
+                <small>Factura: {reg['Número de Factura']} | Monto: {reg['Monto']} Bs.</small>
             </div>
             """, unsafe_allow_html=True)
         with col_del:
@@ -172,38 +170,17 @@ if st.session_state.registros_finales:
 
     st.markdown("---")
     
-    # CAMBIO 2: Lógica de exportación estructurada (D, F, L, M, AB, AC)
-    columnas_letras = [chr(i) for i in range(ord('A'), ord('Z') + 1)] + ['AA', 'AB', 'AC']
-    df_final = pd.DataFrame(index=range(len(st.session_state.registros_finales)), columns=columnas_letras)
-
-    for i, r in enumerate(st.session_state.registros_finales):
-        df_final.iloc[i, 3] = r['Fecha']         # Columna D (index 3)
-        df_final.iloc[i, 5] = r['Nro Factura']   # Columna F (index 5)
-        df_final.iloc[i, 11] = r['Razón Social'] # Columna L (index 11)
-        df_final.iloc[i, 12] = r['NIT']          # Columna M (index 12)
-        df_final.iloc[i, 27] = r['CUF']          # Columna AB (index 27)
-        df_final.iloc[i, 28] = r['Monto']        # Columna AC (index 28)
+    # EXPORTACIÓN CONSECUTIVA (A-F)
+    df_descarga = pd.DataFrame(st.session_state.registros_finales)
 
     buff = BytesIO()
     with pd.ExcelWriter(buff, engine='openpyxl') as writer:
-        df_final.to_excel(writer, index=False, sheet_name='Reporte')
-        worksheet = writer.sheets['Reporte']
-        columnas_activas = {'D', 'F', 'L', 'M', 'AB', 'AC'}
+        df_descarga.to_excel(writer, index=False, sheet_name='Reporte_Univalle')
         
-        for col_name in columnas_letras:
-            if col_name in columnas_activas:
-                worksheet.column_dimensions[col_name].width = 25
-            else:
-                worksheet.column_dimensions[col_name].width = 1
+        worksheet = writer.sheets['Reporte_Univalle']
+        for i, col in enumerate(df_descarga.columns):
+            column_len = max(df_descarga[col].astype(str).map(len).max(), len(col)) + 2
+            worksheet.column_dimensions[chr(65 + i)].width = column_len
 
     st.download_button(
-        label="📥 DESCARGAR EXCEL",
-        data=buff.getvalue(),
-        file_name="Reporte_Univalle.xlsx",
-        use_container_width=True
-    )
-else:
-    if st.session_state.base_siat is None:
-        st.info("💡 Por favor, carga la base de datos en el panel lateral para comenzar.")
-
-st.markdown("<br><p style='text-align: center; color: #741b28; opacity: 0.7;'>UNIVALLE S.A. © 2026</p>", unsafe_allow_html=True)
+        label="📥 DESCARGAR EX
