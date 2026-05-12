@@ -8,7 +8,7 @@ import re
 # Configuración de página
 st.set_page_config(page_title="Gestión Contable | UNIVALLE", page_icon="🎓", layout="wide")
 
-# --- CSS DEFINITIVO: ESTÉTICA INSTITUCIONAL + UPLOADER NEGRO PERMANENTE ---
+# --- CSS DEFINITIVO: ESTÉTICA UNIVALLE + UPLOADER NEGRO CON TEXTO GUINDO ---
 st.markdown("""
     <style>
     .stApp { background-color: #fdf5e6; }
@@ -21,24 +21,25 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* FORZAR PANEL DE CARGA NEGRO SIEMPRE */
+    /* PANEL DE CARGA NEGRO CON DETALLES GUINDOS */
     [data-testid="stFileUploader"] section {
         background-color: #000000 !important;
         border: 2px solid #b8860b !important;
         border-radius: 10px !important;
     }
     
-    /* Asegurar que el fondo no cambie al quitar el cursor */
+    /* Forzar fondo negro constante */
     [data-testid="stFileUploaderDropzone"] {
         background-color: #000000 !important;
-        color: white !important;
     }
 
-    /* Estilo de los textos dentro del cargador */
+    /* TEXTO E ICONOS DEL UPLOADER EN GUINDO UNIVALLE */
     [data-testid="stFileUploader"] label, 
     [data-testid="stFileUploader"] small, 
-    [data-testid="stFileUploader"] div {
-        color: white !important;
+    [data-testid="stFileUploader"] div,
+    [data-testid="stFileUploader"] svg {
+        color: #741b28 !important;
+        fill: #741b28 !important;
     }
 
     /* Botones y Títulos */
