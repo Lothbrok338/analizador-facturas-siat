@@ -7,39 +7,50 @@ import os
 # Configuración de página
 st.set_page_config(page_title="Gestión Contable | UNIVALLE", page_icon="🎓", layout="wide")
 
-# --- PERSONALIZACIÓN VISUAL (COLORES UNIVALLE) ---
+# --- CSS MEJORADO (CONTRASTE Y DISEÑO) ---
 st.markdown("""
     <style>
     .stApp { background-color: #fdf5e6; }
-    [data-testid="stSidebar"] { background-color: #741b28; }
+    [data-testid="stSidebar"] { background-color: #741b28 !important; }
     
-    /* Forzar texto blanco en Sidebar para visibilidad */
-    [data-testid="stSidebar"] p, [data-testid="stSidebar"] label, [data-testid="stSidebar"] span {
+    /* HACK DE VISIBILIDAD PARA EL SIDEBAR */
+    [data-testid="stSidebar"] div, 
+    [data-testid="stSidebar"] span, 
+    [data-testid="stSidebar"] label, 
+    [data-testid="stSidebar"] p {
         color: white !important;
+        font-weight: 500;
     }
     
-    /* Estilo para los botones de eliminar */
-    .stButton>button {
-        border-radius: 5px;
-        font-weight: bold;
-    }
-    .btn-del>button {
+    /* Estilo para los botones de eliminar individual */
+    .stButton > button { border-radius: 5px; }
+    .btn-delete > div > button {
         background-color: #ff4b4b !important;
         color: white !important;
-        height: 2em !important;
-        padding: 0px !important;
+        border: none !important;
     }
-    
-    .stButton>button[kind="primary"] {
-        background-color: #741b28;
-        color: #fdf5e6;
-        border: 2px solid #b8860b;
-        height: 3.5em;
-        width: 100%;
+
+    /* Botón principal Univalle */
+    .btn-proceso > div > button {
+        background-color: #741b28 !important;
+        color: #fdf5e6 !important;
+        border: 2px solid #b8860b !important;
+        height: 3.5em !important;
+        width: 100% !important;
+        font-size: 1.1em !important;
     }
     
     h1, h2, h3 { color: #741b28; font-family: 'Times New Roman', serif; }
     .stDataFrame { border: 2px solid #741b28; border-radius: 10px; background-color: white; }
+    
+    /* Estilo para los links en espera */
+    .link-box {
+        background-color: #fff;
+        padding: 10px;
+        border-left: 5px solid #b8860b;
+        margin-bottom: 5px;
+        font-family: monospace;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -58,7 +69,7 @@ with st.sidebar:
         st.image(nombre_logo, use_container_width=True)
     
     st.markdown("### ⚙️ CONFIGURACIÓN")
-    archivo_csv = st.file_uploader("Cargar Base Mensual (CSV)", type=['csv'])
+    archivo_csv = st.file_uploader("Cargar ComprasParaConfirmar.csv", type=['csv'])
     
     if archivo_csv:
         try:
@@ -70,39 +81,48 @@ with st.sidebar:
             st.error(f"Error: {e}")
     
     st.divider()
-    if st.button("🗑️ Resetear Aplicación"):
+    if st.button("🗑️ Resetear Todo"):
         st.session_state.links_en_espera = []
         st.session_state.registros_finales = []
         st.rerun()
 
 # --- CUERPO PRINCIPAL ---
 st.title("UNIVERSIDAD DEL VALLE S.A.")
-st.subheader("Control Contable de Facturación Electrónica")
+st.subheader("Control de Facturación Electrónica")
 st.divider()
 
 if st.session_state.base_siat is not None:
-    # Área de escaneo
+    # Área de escaneo con captura de evento
     st.markdown("### 📥 Escaneo de Facturas")
-    nuevo_link = st.text_input("Escanear factura (el link se añadirá a la lista automáticamente):", key="scanner")
     
-    # Si detecta un link, lo añade a la lista de espera y limpia el input
-    if nuevo_link:
-        if nuevo_link not in st.session_state.links_en_espera:
-            st.session_state.links_en_espera.append(nuevo_link)
-        st.rerun()
+    # Usamos un formulario pequeño para que el 'Enter' del scanner siempre funcione
+    with st.form("scanner_form", clear_on_submit=True):
+        nuevo_link = st.text_input("Haz clic aquí y escanea la factura:")
+        submit = st.form_submit_button("Añadir a la lista")
+        
+        if submit and nuevo_link:
+            if nuevo_link not in st.session_state.links_en_espera:
+                st.session_state.links_en_espera.append(nuevo_link)
+            st.rerun()
 
     # Mostrar lista de links para revisión
     if st.session_state.links_en_espera:
-        st.markdown("#### 📋 Links listos para procesar:")
+        st.markdown(f"#### 📋 Facturas en espera ({len(st.session_state.links_en_espera)}):")
+        
         for i, link in enumerate(st.session_state.links_en_espera):
-            col_l, col_b = st.columns([9, 1])
-            col_l.code(link) # Se muestra como código (no editable)
-            if col_b.button("🗑️", key=f"del_{i}"):
+            col_l, col_b = st.columns([8, 2])
+            col_l.markdown(f"<div class='link-box'>{link[:80]}...</div>", unsafe_allow_html=True)
+            
+            # Botón de eliminar con estilo rojo
+            if col_b.button(f"Borrar 🗑️", key=f"del_{i}"):
                 st.session_state.links_en_espera.pop(i)
                 st.rerun()
         
-        if st.button("🚀 PROCESAR LISTA ACTUAL", kind="primary"):
+        st.markdown("<br>", unsafe_allow_html=True)
+        # Botón de procesar lote
+        if st.button("🚀 PROCESAR LISTA Y BUSCAR DATOS", type="primary"):
             base = st.session_state.base_siat
+            exitos = 0
             for l_espera in st.session_state.links_en_espera:
                 try:
                     params = parse_qs(urlparse(l_espera).query)
@@ -111,7 +131,6 @@ if st.session_state.base_siat is not None:
                     
                     if not match.empty:
                         item = match.iloc[0]
-                        # Evitar duplicados en el reporte final
                         if not any(d['CUF_FULL'] == cuf for d in st.session_state.registros_finales):
                             st.session_state.registros_finales.append({
                                 "Fecha": item['FECHA DE FACTURA/DUI/DIM'],
@@ -121,10 +140,12 @@ if st.session_state.base_siat is not None:
                                 "Monto (Bs)": item['IMPORTE TOTAL COMPRA'],
                                 "CUF_FULL": cuf
                             })
+                            exitos += 1
                 except:
                     continue
-            st.session_state.links_en_espera = [] # Limpiar lista de espera tras procesar
-            st.success("Proceso completado.")
+            
+            st.session_state.links_en_espera = [] 
+            st.success(f"Se procesaron {exitos} facturas con éxito.")
             st.rerun()
 else:
     st.warning("👈 Por favor, carga el archivo CSV en la barra lateral para comenzar.")
@@ -133,16 +154,16 @@ else:
 if st.session_state.registros_finales:
     st.divider()
     st.write("### 📊 Reporte Consolidado UNIVALLE")
-    resumen = pd.DataFrame(st.session_state.registros_finales)
-    # Mostramos una versión limpia (sin el CUF largo que ensucia la tabla)
-    vista_tabla = resumen.copy()
-    vista_tabla['CUF'] = vista_tabla['CUF_FULL'].str[:15] + "..."
-    st.dataframe(vista_tabla.drop(columns=['CUF_FULL']), use_container_width=True)
+    df_res = pd.DataFrame(st.session_state.registros_finales)
+    # Tabla limpia para visualización
+    vista = df_res.copy()
+    vista['CUF'] = vista['CUF_FULL'].str[:15] + "..."
+    st.dataframe(vista.drop(columns=['CUF_FULL']), use_container_width=True)
     
     buff = BytesIO()
     with pd.ExcelWriter(buff, engine='openpyxl') as w:
-        resumen.drop(columns=['CUF_FULL']).to_excel(w, index=False)
+        df_res.drop(columns=['CUF_FULL']).to_excel(w, index=False)
     
-    st.download_button("📥 DESCARGAR EXCEL", buff.getvalue(), "Reporte_Univalle.xlsx")
+    st.download_button("📥 DESCARGAR EXCEL", buff.getvalue(), "Reporte_Contable_Univalle.xlsx")
 
-st.markdown("<br><p style='text-align: center; color: #741b28;'>UNIVALLE S.A. © 2026</p>", unsafe_allow_html=True)
+st.markdown("<br><p style='text-align: center; color: #741b28; font-weight: bold;'>UNIVALLE S.A. © 2026</p>", unsafe_allow_html=True)
