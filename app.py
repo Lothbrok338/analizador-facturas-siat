@@ -3,6 +3,7 @@ import pandas as pd
 from urllib.parse import urlparse, parse_qs
 from io import BytesIO
 import os
+import re
 
 # Configuración de página
 st.set_page_config(page_title="Gestión Contable | UNIVALLE", page_icon="🎓", layout="wide")
@@ -15,13 +16,6 @@ st.markdown("""
     [data-testid="stSidebar"] div, [data-testid="stSidebar"] span, 
     [data-testid="stSidebar"] label, [data-testid="stSidebar"] p {
         color: white !important;
-    }
-    .stButton > button { border-radius: 5px; font-weight: bold; }
-    .btn-proceso > div > button {
-        background-color: #741b28 !important;
-        color: #fdf5e6 !important;
-        border: 2px solid #b8860b !important;
-        height: 3.5em !important;
     }
     h1, h2, h3 { color: #741b28; font-family: 'Times New Roman', serif; }
     </style>
@@ -63,22 +57,27 @@ st.divider()
 
 if st.session_state.base_siat is not None:
     st.markdown("### 📥 Carga Masiva de Facturas")
-    urls_raw = st.text_area("Escanea o pega todos los links aquí (uno por línea):", height=200, placeholder="Link 1...\nLink 2...")
+    urls_raw = st.text_area("Escanea aquí todas las facturas (no importa si se pegan):", height=200, placeholder="Escanea varios códigos QR aquí...")
     
     if st.button("🚀 PROCESAR Y AÑADIR AL REPORTE", type="primary", use_container_width=True):
-        links = [l.strip() for l in urls_raw.split('\n') if l.strip()]
+        # Lógica de separación por 'https' para casos donde no hay saltos de línea
+        # Esto busca cada link que empiece con https
+        links = re.findall(r'(https?://[^\s,]+)', urls_raw)
+        
         base = st.session_state.base_siat
         agregados = 0
         
         for link in links:
             try:
+                # Limpiar el link de posibles caracteres pegados al final
+                link_clean = link.split('&')[0] if 'numero' not in link else link # Intenta mantener el link útil
                 params = parse_qs(urlparse(link).query)
                 cuf = params.get('cuf', [''])[0].strip()
+                
                 match = base[base['CODIGO DE AUTORIZACION'] == cuf]
                 
                 if not match.empty:
                     item = match.iloc[0]
-                    # Evitar duplicados exactos en el reporte
                     if not any(d['CUF_FULL'] == cuf for d in st.session_state.registros_finales):
                         st.session_state.registros_finales.append({
                             "Fecha": item['FECHA DE FACTURA/DUI/DIM'],
@@ -91,30 +90,26 @@ if st.session_state.base_siat is not None:
                         agregados += 1
             except:
                 continue
+        
         if agregados > 0:
-            st.success(f"✅ Se añadieron {agregados} facturas nuevas.")
+            st.success(f"✅ Se procesaron {len(links)} links y se añadieron {agregados} facturas nuevas.")
         else:
-            st.warning("⚠️ No se encontraron facturas nuevas en el lote.")
+            st.warning("⚠️ No se encontraron facturas válidas. Revisa si los links son correctos.")
 
-# --- REPORTE CONSOLIDADO CON OPCIÓN DE ELIMINAR ---
+# --- REPORTE CONSOLIDADO ---
 if st.session_state.registros_finales:
     st.divider()
     st.write("### 📊 Reporte Consolidado UNIVALLE")
-    st.info("Si hay una factura incorrecta, presiona el botón 'Eliminar' de esa fila.")
-
-    # Crear una lista para controlar qué eliminar
+    
+    # Tabla interactiva para eliminar filas individuales
     for i, reg in enumerate(st.session_state.registros_finales):
         with st.expander(f"📄 {reg['Razón Social']} - {reg['Monto (Bs)']} Bs.", expanded=False):
-            col_info, col_del = st.columns([8, 2])
-            with col_info:
-                st.write(f"**Fecha:** {reg['Fecha']} | **Factura:** {reg['Nro Factura']} | **NIT:** {reg['NIT']}")
-                st.caption(f"CUF: {reg['CUF_FULL']}")
-            with col_del:
-                if st.button("Eliminar de la lista 🗑️", key=f"del_final_{i}"):
-                    st.session_state.registros_finales.pop(i)
-                    st.rerun()
+            c_inf, c_del = st.columns([8, 2])
+            c_inf.write(f"**Fecha:** {reg['Fecha']} | **NIT:** {reg['NIT']} | **Factura:** {reg['Nro Factura']}")
+            if c_del.button("Eliminar 🗑️", key=f"del_{i}"):
+                st.session_state.registros_finales.pop(i)
+                st.rerun()
 
-    # Botones de exportación
     if st.session_state.registros_finales:
         df_res = pd.DataFrame(st.session_state.registros_finales).drop(columns=['CUF_FULL'])
         st.dataframe(df_res, use_container_width=True)
@@ -123,10 +118,10 @@ if st.session_state.registros_finales:
         with pd.ExcelWriter(buff, engine='openpyxl') as w:
             df_res.to_excel(w, index=False)
         
-        st.download_button("📥 DESCARGAR REPORTE FINAL EXCEL", buff.getvalue(), "Reporte_Contable_Univalle.xlsx", use_container_width=True)
+        st.download_button("📥 DESCARGAR REPORTE FINAL EXCEL", buff.getvalue(), "Reporte_Univalle.xlsx", use_container_width=True)
 
 else:
     if st.session_state.base_siat is None:
-        st.warning("👈 Por favor, carga el archivo CSV en la barra lateral para comenzar.")
+        st.warning("👈 Carga el archivo CSV en la barra lateral para comenzar.")
 
 st.markdown("<br><p style='text-align: center; color: #741b28; font-weight: bold;'>UNIVALLE S.A. © 2026</p>", unsafe_allow_html=True)
