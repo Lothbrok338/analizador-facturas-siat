@@ -8,7 +8,7 @@ import re
 # Configuración de página
 st.set_page_config(page_title="Gestión Contable | UNIVALLE", page_icon="🎓", layout="wide")
 
-# --- CSS DEFINITIVO: ALTO CONTRASTE ---
+# --- CSS DEFINITIVO: ALTO CONTRASTE (INTACTO) ---
 st.markdown("""
     <style>
     .stApp { background-color: #fdf5e6; }
@@ -21,19 +21,17 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* PANEL DE CARGA NEGRO - CORRECCIÓN DE VISIBILIDAD */
+    /* PANEL DE CARGA NEGRO */
     [data-testid="stFileUploader"] section {
         background-color: #000000 !important;
         border: 2px solid #b8860b !important;
         border-radius: 10px !important;
     }
     
-    /* Forzar fondo negro y TEXTO BLANCO para que se lea 'Browse files' y 'Upload' */
     [data-testid="stFileUploaderDropzone"] {
         background-color: #000000 !important;
     }
 
-    /* Aquí corregimos lo que te chocaba: Texto e íconos en blanco/dorado */
     [data-testid="stFileUploader"] label, 
     [data-testid="stFileUploader"] small,
     [data-testid="stFileUploader"] div,
@@ -42,14 +40,12 @@ st.markdown("""
         fill: #ffffff !important;
     }
     
-    /* El botón pequeño que dice 'Browse files' */
     [data-testid="stFileUploader"] button {
         background-color: #333333 !important;
         color: white !important;
         border: 1px solid #b8860b !important;
     }
 
-    /* Nombre del archivo cargado en Dorado para que destaque */
     [data-testid="stFileUploaderFileName"] {
         color: #b8860b !important;
     }
@@ -89,20 +85,27 @@ with st.sidebar:
     
     st.markdown("---")
     st.write("### PANEL DE CONTROL")
-    archivo_csv = st.file_uploader("Cargar base de datos (.csv)", type=['csv'])
     
-    if archivo_csv:
-        try:
-            df_siat = pd.read_csv(archivo_csv, sep=',', encoding='latin1', on_bad_lines='skip')
-            df_siat.columns = [c.strip() for c in df_siat.columns]
-            st.session_state.base_siat = df_siat
-            st.success("✅ Base vinculada")
-        except Exception as e:
-            st.error(f"Error: {e}")
+    archivos_csv = st.file_uploader("Cargar base de datos (.csv)", type=['csv'], accept_multiple_files=True)
+    
+    if archivos_csv:
+        lista_dfs = []
+        for arch in archivos_csv:
+            try:
+                df_temp = pd.read_csv(arch, sep=',', encoding='latin1', on_bad_lines='skip')
+                df_temp.columns = [c.strip() for c in df_temp.columns]
+                lista_dfs.append(df_temp)
+            except Exception as e:
+                st.error(f"Error en {arch.name}: {e}")
+        
+        if lista_dfs:
+            st.session_state.base_siat = pd.concat(lista_dfs, ignore_index=True)
+            st.success(f"✅ Bases vinculadas")
     
     st.divider()
     if st.button("🗑️ Limpiar sesión", use_container_width=True):
         st.session_state.registros_finales = []
+        st.session_state.base_siat = None
         st.rerun()
 
 # --- CUERPO PRINCIPAL ---
@@ -128,14 +131,14 @@ if st.session_state.base_siat is not None:
                 match = base[base['CODIGO DE AUTORIZACION'] == cuf]
                 if not match.empty:
                     item = match.iloc[0]
-                    if not any(d['CUF_FULL'] == cuf for d in st.session_state.registros_finales):
+                    if not any(d['CUF'] == cuf for d in st.session_state.registros_finales):
                         st.session_state.registros_finales.append({
-                            "Fecha": item['FECHA DE FACTURA/DUI/DIM'],
+                            "Fecha de Documento": item['FECHA DE FACTURA/DUI/DIM'],
+                            "Número de Factura": item['NUMERO FACTURA'],
                             "Razón Social": item['RAZON SOCIAL PROVEEDOR'],
                             "NIT": item['NIT PROVEEDOR'],
-                            "Nro Factura": item['NUMERO FACTURA'],
-                            "Monto (Bs)": item['IMPORTE TOTAL COMPRA'],
-                            "CUF_FULL": cuf
+                            "CUF": cuf,
+                            "Monto": item['IMPORTE TOTAL COMPRA']
                         })
                         agregados += 1
             except:
@@ -143,8 +146,6 @@ if st.session_state.base_siat is not None:
         
         if agregados > 0:
             st.success(f"Se añadieron {agregados} registros.")
-        else:
-            st.warning("No se encontraron facturas nuevas.")
 
 # --- REPORTE ---
 if st.session_state.registros_finales:
@@ -157,7 +158,7 @@ if st.session_state.registros_finales:
             st.markdown(f"""
             <div class='factura-card'>
                 <strong>{reg['Razón Social']}</strong> | 
-                <small>Factura: {reg['Nro Factura']} | Monto: {reg['Monto (Bs)']} Bs.</small>
+                <small>Factura: {reg['Número de Factura']} | Monto: {reg['Monto']} Bs.</small>
             </div>
             """, unsafe_allow_html=True)
         with col_del:
@@ -167,13 +168,24 @@ if st.session_state.registros_finales:
                 st.rerun()
 
     st.markdown("---")
-    df_res = pd.DataFrame(st.session_state.registros_finales).drop(columns=['CUF_FULL'])
-    st.dataframe(df_res, use_container_width=True)
     
+    # --- EXPORTACIÓN CORREGIDA ---
+    df_descarga = pd.DataFrame(st.session_state.registros_finales)
+    
+    # FORZAMOS EL ORDEN DE LAS COLUMNAS AQUÍ
+    orden_columnas = ["Fecha de Documento", "Número de Factura", "Razón Social", "NIT", "CUF", "Monto"]
+    df_descarga = df_descarga[orden_columnas]
+
     buff = BytesIO()
-    with pd.ExcelWriter(buff, engine='openpyxl') as w:
-        df_res.to_excel(w, index=False)
-    
+    with pd.ExcelWriter(buff, engine='openpyxl') as writer:
+        df_descarga.to_excel(writer, index=False, sheet_name='Reporte_Univalle')
+        worksheet = writer.sheets['Reporte_Univalle']
+        
+        # Autoajuste
+        for i, col in enumerate(df_descarga.columns):
+            column_len = max(df_descarga[col].astype(str).map(len).max(), len(col)) + 2
+            worksheet.column_dimensions[chr(65 + i)].width = column_len
+
     st.download_button(
         label="📥 DESCARGAR EXCEL",
         data=buff.getvalue(),
