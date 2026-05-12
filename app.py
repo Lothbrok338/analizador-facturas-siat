@@ -8,7 +8,7 @@ import re
 # Configuración de página
 st.set_page_config(page_title="Gestión Contable | UNIVALLE", page_icon="🎓", layout="wide")
 
-# --- CSS DEFINITIVO: ESTÉTICA INSTITUCIONAL ---
+# --- CSS DEFINITIVO: ESTÉTICA INSTITUCIONAL + UPLOADER NEGRO PERMANENTE ---
 st.markdown("""
     <style>
     .stApp { background-color: #fdf5e6; }
@@ -21,11 +21,24 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* Área de Carga (Estilo Negro) */
+    /* FORZAR PANEL DE CARGA NEGRO SIEMPRE */
     [data-testid="stFileUploader"] section {
         background-color: #000000 !important;
         border: 2px solid #b8860b !important;
         border-radius: 10px !important;
+    }
+    
+    /* Asegurar que el fondo no cambie al quitar el cursor */
+    [data-testid="stFileUploaderDropzone"] {
+        background-color: #000000 !important;
+        color: white !important;
+    }
+
+    /* Estilo de los textos dentro del cargador */
+    [data-testid="stFileUploader"] label, 
+    [data-testid="stFileUploader"] small, 
+    [data-testid="stFileUploader"] div {
+        color: white !important;
     }
 
     /* Botones y Títulos */
@@ -157,7 +170,6 @@ if st.session_state.registros_finales:
     )
 else:
     if st.session_state.base_siat is None:
-        # LEYENDA CORREGIDA AQUÍ
         st.info("💡 Por favor, carga la base de datos en el panel lateral para comenzar.")
 
 st.markdown("<br><p style='text-align: center; color: #741b28; opacity: 0.7;'>UNIVALLE S.A. © 2026</p>", unsafe_allow_html=True)
