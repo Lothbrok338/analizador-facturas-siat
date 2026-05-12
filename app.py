@@ -8,23 +8,31 @@ import re
 # Configuración de página
 st.set_page_config(page_title="Gestión Contable | UNIVALLE", page_icon="🎓", layout="wide")
 
-# --- CSS INSTITUCIONAL ---
+# --- CSS DEFINITIVO (EL QUE YA TE GUSTABA) ---
 st.markdown("""
     <style>
     .stApp { background-color: #fdf5e6; }
     [data-testid="stSidebar"] { background-color: #741b28 !important; }
     [data-testid="stSidebar"] div, [data-testid="stSidebar"] span, 
-    [data-testid="stSidebar"] label, [data-testid="stSidebar"] p { color: #ffffff !important; font-weight: 600 !important; }
+    [data-testid="stSidebar"] label, [data-testid="stSidebar"] p {
+        color: #ffffff !important;
+        font-weight: 600 !important;
+    }
 
-    /* Panel de Carga Negro */
-    [data-testid="stFileUploader"] section { background-color: #000000 !important; border: 2px solid #b8860b !important; border-radius: 10px !important; }
+    /* Panel de Carga Negro Permanente */
+    [data-testid="stFileUploader"] section {
+        background-color: #000000 !important;
+        border: 2px solid #b8860b !important;
+        border-radius: 10px !important;
+    }
     [data-testid="stFileUploaderDropzone"] { background-color: #000000 !important; }
-    [data-testid="stFileUploader"] label, [data-testid="stFileUploader"] small, [data-testid="stFileUploader"] div, [data-testid="stFileUploader"] svg {
+    [data-testid="stFileUploader"] label, [data-testid="stFileUploader"] small, 
+    [data-testid="stFileUploader"] div, [data-testid="stFileUploader"] svg {
         color: #ffffff !important; fill: #ffffff !important;
     }
     [data-testid="stFileUploaderFileName"] { color: #b8860b !important; }
 
-    /* Estilos de Botones */
+    /* Botones y Títulos */
     .stButton > button { border-radius: 8px; font-weight: bold; }
     .stButton > button[kind="primary"] {
         background-color: #741b28 !important;
@@ -33,9 +41,14 @@ st.markdown("""
         height: 3.5em;
     }
     h1, h2, h3 { color: #741b28; font-family: 'Times New Roman', serif; }
+    
     .factura-card {
-        background-color: white; padding: 12px; border-left: 6px solid #741b28;
-        border-radius: 4px; box-shadow: 2px 2px 5px rgba(0,0,0,0.05); margin-bottom: 10px;
+        background-color: white;
+        padding: 12px;
+        border-left: 6px solid #741b28;
+        border-radius: 4px;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
+        margin-bottom: 10px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -72,20 +85,21 @@ with st.sidebar:
 
 # --- CUERPO PRINCIPAL ---
 st.title("UNIVERSIDAD DEL VALLE S.A.")
-st.subheader("Estructuración de Columnas Personalizada (D, F, L, M, AB, AC)")
+st.subheader("Validación y Consolidación de Facturas")
 st.divider()
 
 if st.session_state.base_siat is not None:
-    urls_raw = st.text_area("Escanea los links de los QR aquí:", height=150)
+    st.markdown("### 📥 Escaneo Masivo")
+    urls_raw = st.text_area("Escanea o pega los links aquí:", height=150)
     
-    if st.button("🚀 PROCESAR Y MAPEAR EXCEL", type="primary", use_container_width=True):
+    if st.button("🚀 VALIDAR LOTE", type="primary", use_container_width=True):
         links = re.findall(r'https?://[^\s]+?(?=https?://|$)', urls_raw)
         base = st.session_state.base_siat
         agregados = 0
         
         for link in links:
             try:
-                link_clean = link.strip().split(' ')[0]
+                link_clean = link.strip().rstrip(',').rstrip(';')
                 params = parse_qs(urlparse(link_clean).query)
                 cuf = params.get('cuf', [''])[0].strip()
                 
@@ -104,61 +118,64 @@ if st.session_state.base_siat is not None:
                         agregados += 1
             except:
                 continue
+        
         if agregados > 0:
-            st.success(f"Se añadieron {agregados} facturas al reporte.")
+            st.success(f"Se añadieron {agregados} registros.")
 
+# --- REPORTE ---
 if st.session_state.registros_finales:
-    st.write("### 📊 Vista Previa")
-    temp_df = pd.DataFrame(st.session_state.registros_finales)
-    st.dataframe(temp_df, use_container_width=True)
+    st.divider()
+    st.write("### 📊 Reporte Generado")
+    
+    for i, reg in enumerate(st.session_state.registros_finales):
+        col_data, col_del = st.columns([9, 1])
+        with col_data:
+            st.markdown(f"""
+            <div class='factura-card'>
+                <strong>{reg['Razon Social']}</strong> | 
+                <small>Factura: {reg['Nro Factura']} | Monto: {reg['Monto']} Bs.</small>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_del:
+            st.write("") 
+            if st.button("X", key=f"del_{i}"):
+                st.session_state.registros_finales.pop(i)
+                st.rerun()
 
-    # --- GENERACIÓN DE EXCEL CON COLUMNAS ESPECÍFICAS ---
-    # Creamos un DataFrame con 29 columnas (A hasta AC)
+    st.markdown("---")
+    
+    # --- GENERACIÓN DE EXCEL ESTRUCTURADO (D, F, L, M, AB, AC) ---
     columnas_letras = [chr(i) for i in range(ord('A'), ord('Z') + 1)] + ['AA', 'AB', 'AC']
-    df_excel = pd.DataFrame(columns=columnas_letras)
+    df_final = pd.DataFrame(index=range(len(st.session_state.registros_finales)), columns=columnas_letras)
 
-    # Mapeo según tu solicitud:
-    # Fecha -> D (indice 3)
-    # Nro Factura -> F (indice 5)
-    # Razon Social -> L (indice 11)
-    # NIT -> M (indice 12)
-    # CUF -> AB (indice 27)
-    # Monto -> AC (indice 28)
-
-    registros = st.session_state.registros_finales
-    df_final = pd.DataFrame(index=range(len(registros)), columns=columnas_letras)
-
-    for i, r in enumerate(registros):
-        df_final.iloc[i, 3] = r['Fecha']         # Columna D
-        df_final.iloc[i, 5] = r['Nro Factura']   # Columna F
-        df_final.iloc[i, 11] = r['Razon Social'] # Columna L
-        df_final.iloc[i, 12] = r['NIT']          # Columna M
-        df_final.iloc[i, 27] = r['CUF']          # Columna AB
-        df_final.iloc[i, 28] = r['Monto']        # Columna AC
+    for i, r in enumerate(st.session_state.registros_finales):
+        df_final.iloc[i, 3] = r['Fecha']         # D
+        df_final.iloc[i, 5] = r['Nro Factura']   # F
+        df_final.iloc[i, 11] = r['Razon Social'] # L
+        df_final.iloc[i, 12] = r['NIT']          # M
+        df_final.iloc[i, 27] = r['CUF']          # AB
+        df_final.iloc[i, 28] = r['Monto']        # AC
 
     buff = BytesIO()
     with pd.ExcelWriter(buff, engine='openpyxl') as writer:
-        df_final.to_excel(writer, index=False, header=True, sheet_name='Facturas')
+        df_final.to_excel(writer, index=False, sheet_name='Reporte')
+        worksheet = writer.sheets['Reporte']
+        columnas_activas = {'D', 'F', 'L', 'M', 'AB', 'AC'}
         
-        # Ajuste de tamaño de columnas
-        worksheet = writer.sheets['Facturas']
-        columnas_con_datos = {4, 6, 12, 13, 28, 29} # Letras en Excel son 1-indexed para openpyxl
-        
-        for i, col_name in enumerate(columnas_letras, 1):
-            if i in columnas_con_datos:
-                # Columnas con datos: Autoajustables
-                worksheet.column_dimensions[col_name].width = 25
+        for col_name in columnas_letras:
+            if col_name in columnas_activas:
+                worksheet.column_dimensions[col_name].width = 22
             else:
-                # Columnas vacías: Tamaño mínimo
-                worksheet.column_dimensions[col_name].width = 1
+                worksheet.column_dimensions[col_name].width = 1 # Columnas vacías mínimas
 
     st.download_button(
-        label="📥 DESCARGAR EXCEL PARA UNIVALLE (D, F, L, M, AB, AC)",
+        label="📥 DESCARGAR EXCEL",
         data=buff.getvalue(),
-        file_name="Reporte_Contable_Estructurado.xlsx",
+        file_name="Reporte_Univalle.xlsx",
         use_container_width=True
     )
+else:
+    if st.session_state.base_siat is None:
+        st.info("💡 Por favor, carga la base de datos en el panel lateral para comenzar.")
 
-    if st.button("🗑️ Borrar lista"):
-        st.session_state.registros_finales = []
-        st.rerun()
+st.markdown("<br><p style='text-align: center; color: #741b28; opacity: 0.7;'>UNIVALLE S.A. © 2026</p>", unsafe_allow_html=True)
