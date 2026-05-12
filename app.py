@@ -1,83 +1,103 @@
 import streamlit as st
 import pandas as pd
-import requests
 from urllib.parse import urlparse, parse_qs
 from io import BytesIO
 
-st.set_page_config(page_title="SIAT Central | Automatización", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Validador SIAT Pro", layout="wide", page_icon="🇧🇴")
 
-# Estilo "Clean" para la oficina
+# Estilo profesional para la oficina
 st.markdown("""
     <style>
-    .main { background-color: #f5f7f9; }
-    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #2c3e50; color: white; }
+    .stApp { background-color: #f8f9fa; }
+    .stButton>button { width: 100%; border-color: #2c3e50; color: #2c3e50; }
+    .stButton>button:hover { background-color: #2c3e50; color: white; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("💼 Gestión de Facturas Electrónicas - SIAT")
-st.info("Solo pega el enlace del QR. El sistema extraerá los montos y nombres automáticamente.")
+st.title("🇧🇴 Sistema de Registro de Compras SIAT")
+st.write("Automatiza tu contabilidad: Carga el CSV mensual y busca facturas con el QR.")
 
-if 'df_final' not in st.session_state:
-    st.session_state.df_final = pd.DataFrame(columns=["Fecha", "Razón Social", "NIT Emisor", "Nro Factura", "Monto (Bs)", "CUF"])
+# 1. Persistencia de datos en la sesión
+if 'base_siat' not in st.session_state:
+    st.session_state.base_siat = None
+if 'registros_seleccionados' not in st.session_state:
+    st.session_state.registros_seleccionados = []
 
-# Interfaz simplificada
-col1, col2 = st.columns([3, 1])
-with col1:
-    url_input = st.text_input("Enlace de Factura:", placeholder="Pega el link aquí...")
-with col2:
-    procesar = st.button("Registrar Factura")
-
-if procesar and url_input:
-    with st.spinner('Sincronizando con SIAT...'):
+# --- Barra Lateral para Carga de Datos ---
+with st.sidebar:
+    st.header("⚙️ Configuración")
+    archivo_csv = st.file_uploader("Sube el archivo 'ComprasParaConfirmar.csv'", type=['csv'])
+    
+    if archivo_csv:
         try:
-            # 1. Extraer llaves del link
-            p = parse_qs(urlparse(url_input).query)
-            nit, cuf, numero = p.get('nit', [''])[0], p.get('cuf', [''])[0], p.get('numero', [''])[0]
+            # Leemos con la configuración exacta para archivos del SIAT Bolivia
+            df_temp = pd.read_csv(archivo_csv, sep=',', encoding='latin1', on_bad_lines='skip')
+            # Limpiamos espacios en los nombres de las columnas
+            df_temp.columns = [c.strip() for c in df_temp.columns]
+            st.session_state.base_siat = df_temp
+            st.success(f"Base de datos cargada: {len(df_temp)} registros.")
+        except Exception as e:
+            st.error(f"Error al leer el archivo: {e}")
 
-            # 2. Petición directa al motor de búsqueda del SIAT
-            # Intentamos obtener el JSON de datos que el SIAT usa para llenar la image_9b1d62.png
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            api_url = f"https://siat.impuestos.gob.bo/consulta/QR?nit={nit}&cuf={cuf}&numero={numero}"
-            res = requests.get(api_url, headers=headers, timeout=10)
-            
-            # 3. Lógica de extracción quirúrgica
-            # Aquí usamos selectores CSS para ir directo al grano
-            from bs4 import BeautifulSoup
-            s = BeautifulSoup(res.text, 'html.parser')
-            
-            # Buscamos los valores basados en la estructura de la image_9b1d62.png
-            def get_val(label):
-                tag = s.find(text=lambda t: label in t)
-                return tag.find_parent().find_next_sibling().text.strip() if tag else "N/A"
+# --- Panel Principal de Búsqueda ---
+if st.session_state.base_siat is not None:
+    st.info("💡 Paso: Escanea el QR para buscar la factura en tu base de datos.")
+    
+    url_input = st.text_input("Enlace del QR (Pega aquí):", placeholder="https://siat.impuestos.gob.bo/...")
+    
+    if st.button("🔍 Buscar y Registrar en Reporte"):
+        if url_input:
+            try:
+                # Extraemos el CUF del link
+                p = parse_qs(urlparse(url_input).query)
+                cuf_link = p.get('cuf', [''])[0].strip()
+                
+                if cuf_link:
+                    # Buscamos en la columna 'CODIGO DE AUTORIZACION'
+                    base = st.session_state.base_siat
+                    resultado = base[base['CODIGO DE AUTORIZACION'] == cuf_link]
+                    
+                    if not resultado.empty:
+                        # Extraemos los datos que realmente te sirven para tu reporte
+                        factura = resultado.iloc[0]
+                        datos_limpios = {
+                            "Fecha": factura['FECHA DE FACTURA/DUI/DIM'],
+                            "Razón Social": factura['RAZON SOCIAL PROVEEDOR'],
+                            "NIT Proveedor": factura['NIT PROVEEDOR'],
+                            "Nro Factura": factura['NUMERO FACTURA'],
+                            "Monto Total (Bs)": factura['IMPORTE TOTAL COMPRA'],
+                            "CUF": cuf_link[:15] + "..." # Acortado para vista
+                        }
+                        st.session_state.registros_seleccionados.append(datos_limpios)
+                        st.success(f"✅ Encontrada: {datos_limpios['Razón Social']} por {datos_limpios['Monto Total (Bs)']} Bs.")
+                    else:
+                        st.error("❌ No se encontró la factura. Revisa si pertenece al mes del archivo subido.")
+                else:
+                    st.warning("El link pegado no parece tener un CUF válido.")
+            except Exception as e:
+                st.error(f"Error procesando el link: {e}")
+else:
+    st.warning("⚠️ Primero debes subir el archivo 'ComprasParaConfirmar.csv' en el panel izquierdo.")
 
-            # Creamos la fila
-            nueva_fila = {
-                "Fecha": get_val("Fecha Emisión"),
-                "Razón Social": get_val("Razón Social"),
-                "NIT Emisor": nit,
-                "Nro Factura": numero,
-                "Monto (Bs)": get_val("Monto Total").replace(' Bs.', '').replace(',', ''),
-                "CUF": cuf[:15] + "..." # Acortado para estética
-            }
-
-            # Añadir al DataFrame global
-            st.session_state.df_final = pd.concat([st.session_state.df_final, pd.DataFrame([nueva_fila])], ignore_index=True)
-            st.success(f"Factura de {nueva_fila['Razón Social']} añadida.")
-        except:
-            st.error("Error de conexión. Verifica que el link sea válido.")
-
-# Mostrar tabla elegante
-if not st.session_state.df_final.empty:
+# --- Tabla de Resultados y Descarga ---
+if st.session_state.registros_seleccionados:
     st.divider()
-    st.dataframe(st.session_state.df_final, use_container_width=True)
+    st.subheader("📋 Tu Reporte de Facturas Seleccionadas")
+    df_final = pd.DataFrame(st.session_state.registros_seleccionados)
+    st.dataframe(df_final, use_container_width=True)
     
-    # Exportación limpia
-    out = BytesIO()
-    with pd.ExcelWriter(out, engine='openpyxl') as w:
-        st.session_state.df_final.to_excel(w, index=False)
+    # Preparar Excel para descargar
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_final.to_excel(writer, index=False, sheet_name='Facturas_Registradas')
     
-    st.download_button("📥 Descargar Reporte Consolidado (Excel)", out.getvalue(), "facturas_siat.xlsx")
+    st.download_button(
+        label="📥 Descargar Excel para Contabilidad",
+        data=output.getvalue(),
+        file_name="Reporte_Facturas_SIAT_Limpio.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
-if st.button("Limpiar Sesión"):
-    st.session_state.df_final = pd.DataFrame(columns=["Fecha", "Razón Social", "NIT Emisor", "Nro Factura", "Monto (Bs)", "CUF"])
-    st.rerun()
+    if st.button("🗑️ Borrar lista y empezar de nuevo"):
+        st.session_state.registros_seleccionados = []
+        st.rerun()
