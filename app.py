@@ -8,12 +8,10 @@ import re
 # Configuración de página
 st.set_page_config(page_title="Gestión Contable | UNIVALLE", page_icon="🎓", layout="wide")
 
-# --- CSS DEFINITIVO: ALTO CONTRASTE (INTACTO) ---
+# --- CSS DEFINITIVO (ESTÉTICA ORIGINAL RESTAURADA) ---
 st.markdown("""
     <style>
     .stApp { background-color: #fdf5e6; }
-    
-    /* Barra Lateral Guindo */
     [data-testid="stSidebar"] { background-color: #741b28 !important; }
     [data-testid="stSidebar"] div, [data-testid="stSidebar"] span, 
     [data-testid="stSidebar"] label, [data-testid="stSidebar"] p {
@@ -21,36 +19,20 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* PANEL DE CARGA NEGRO */
+    /* Panel de Carga Negro Permanente */
     [data-testid="stFileUploader"] section {
         background-color: #000000 !important;
         border: 2px solid #b8860b !important;
         border-radius: 10px !important;
     }
-    
-    [data-testid="stFileUploaderDropzone"] {
-        background-color: #000000 !important;
+    [data-testid="stFileUploaderDropzone"] { background-color: #000000 !important; }
+    [data-testid="stFileUploader"] label, [data-testid="stFileUploader"] small, 
+    [data-testid="stFileUploader"] div, [data-testid="stFileUploader"] svg {
+        color: #ffffff !important; fill: #ffffff !important;
     }
+    [data-testid="stFileUploaderFileName"] { color: #b8860b !important; }
 
-    [data-testid="stFileUploader"] label, 
-    [data-testid="stFileUploader"] small,
-    [data-testid="stFileUploader"] div,
-    [data-testid="stFileUploader"] svg {
-        color: #ffffff !important; 
-        fill: #ffffff !important;
-    }
-    
-    [data-testid="stFileUploader"] button {
-        background-color: #333333 !important;
-        color: white !important;
-        border: 1px solid #b8860b !important;
-    }
-
-    [data-testid="stFileUploaderFileName"] {
-        color: #b8860b !important;
-    }
-
-    /* Estilos Generales */
+    /* Botones y Títulos */
     .stButton > button { border-radius: 8px; font-weight: bold; }
     .stButton > button[kind="primary"] {
         background-color: #741b28 !important;
@@ -86,8 +68,8 @@ with st.sidebar:
     st.markdown("---")
     st.write("### PANEL DE CONTROL")
     
-    # Carga de múltiples bases habilitada
-    archivos_csv = st.file_uploader("Cargar base de datos (.csv)", type=['csv'], accept_multiple_files=True)
+    # Cambio aquí: Permitir múltiples archivos
+    archivos_csv = st.file_uploader("Cargar bases de datos (.csv)", type=['csv'], accept_multiple_files=True)
     
     if archivos_csv:
         lista_dfs = []
@@ -100,8 +82,9 @@ with st.sidebar:
                 st.error(f"Error en {arch.name}: {e}")
         
         if lista_dfs:
+            # Combinamos todas las bases cargadas en una sola
             st.session_state.base_siat = pd.concat(lista_dfs, ignore_index=True)
-            st.success(f"✅ Bases vinculadas")
+            st.success(f"✅ {len(archivos_csv)} bases vinculadas")
     
     st.divider()
     if st.button("🗑️ Limpiar sesión", use_container_width=True):
@@ -129,17 +112,18 @@ if st.session_state.base_siat is not None:
                 params = parse_qs(urlparse(link_clean).query)
                 cuf = params.get('cuf', [''])[0].strip()
                 
+                # Buscamos en la base consolidada (que puede tener varios meses)
                 match = base[base['CODIGO DE AUTORIZACION'] == cuf]
                 if not match.empty:
                     item = match.iloc[0]
                     if not any(d['CUF'] == cuf for d in st.session_state.registros_finales):
                         st.session_state.registros_finales.append({
-                            "Fecha de Documento": item['FECHA DE FACTURA/DUI/DIM'],
-                            "Número de Factura": item['NUMERO FACTURA'],
-                            "Razón Social": item['RAZON SOCIAL PROVEEDOR'],
+                            "Fecha": item['FECHA DE FACTURA/DUI/DIM'],
                             "NIT": item['NIT PROVEEDOR'],
-                            "CUF": cuf,
-                            "Monto": item['IMPORTE TOTAL COMPRA']
+                            "Razon Social": item['RAZON SOCIAL PROVEEDOR'],
+                            "Nro Factura": item['NUMERO FACTURA'],
+                            "Monto": item['IMPORTE TOTAL COMPRA'],
+                            "CUF": cuf
                         })
                         agregados += 1
             except:
@@ -148,7 +132,7 @@ if st.session_state.base_siat is not None:
         if agregados > 0:
             st.success(f"Se añadieron {agregados} registros.")
 
-# --- REPORTE ---
+# --- REPORTE Y EXCEL ---
 if st.session_state.registros_finales:
     st.divider()
     st.write("### 📊 Reporte Generado")
@@ -158,8 +142,8 @@ if st.session_state.registros_finales:
         with col_data:
             st.markdown(f"""
             <div class='factura-card'>
-                <strong>{reg['Razón Social']}</strong> | 
-                <small>Factura: {reg['Número de Factura']} | Monto: {reg['Monto']} Bs.</small>
+                <strong>{reg['Razon Social']}</strong> | 
+                <small>Factura: {reg['Nro Factura']} | Monto: {reg['Monto']} Bs.</small>
             </div>
             """, unsafe_allow_html=True)
         with col_del:
@@ -170,17 +154,34 @@ if st.session_state.registros_finales:
 
     st.markdown("---")
     
-    # EXPORTACIÓN CONSECUTIVA (A-F)
-    df_descarga = pd.DataFrame(st.session_state.registros_finales)
+    # Estructura de Excel personalizada (D, F, L, M, AB, AC)
+    columnas_letras = [chr(i) for i in range(ord('A'), ord('Z') + 1)] + ['AA', 'AB', 'AC']
+    df_final = pd.DataFrame(index=range(len(st.session_state.registros_finales)), columns=columnas_letras)
+
+    for i, r in enumerate(st.session_state.registros_finales):
+        df_final.iloc[i, 3] = r['Fecha']         # D
+        df_final.iloc[i, 5] = r['Nro Factura']   # F
+        df_final.iloc[i, 11] = r['Razon Social'] # L
+        df_final.iloc[i, 12] = r['NIT']          # M
+        df_final.iloc[i, 27] = r['CUF']          # AB
+        df_final.iloc[i, 28] = r['Monto']        # AC
 
     buff = BytesIO()
     with pd.ExcelWriter(buff, engine='openpyxl') as writer:
-        df_descarga.to_excel(writer, index=False, sheet_name='Reporte_Univalle')
-        
-        worksheet = writer.sheets['Reporte_Univalle']
-        for i, col in enumerate(df_descarga.columns):
-            column_len = max(df_descarga[col].astype(str).map(len).max(), len(col)) + 2
-            worksheet.column_dimensions[chr(65 + i)].width = column_len
+        df_final.to_excel(writer, index=False, sheet_name='Reporte')
+        worksheet = writer.sheets['Reporte']
+        columnas_activas = {'D', 'F', 'L', 'M', 'AB', 'AC'}
+        for col_name in columnas_letras:
+            worksheet.column_dimensions[col_name].width = 22 if col_name in columnas_activas else 1
 
     st.download_button(
-        label="📥 DESCARGAR EX
+        label="📥 DESCARGAR EXCEL",
+        data=buff.getvalue(),
+        file_name="Reporte_Univalle.xlsx",
+        use_container_width=True
+    )
+else:
+    if st.session_state.base_siat is None:
+        st.info("💡 Por favor, carga la base de datos en el panel lateral para comenzar.")
+
+st.markdown("<br><p style='text-align: center; color: #741b28; opacity: 0.7;'>UNIVALLE S.A. © 2026</p>", unsafe_allow_html=True)
