@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 from urllib.parse import urlparse, parse_qs
 from io import BytesIO
+import os
 
 # Configuración de página con identidad institucional
 st.set_page_config(
-    page_title="Sistema Contable | UNIVALLE",
+    page_title="Gestión Contable | UNIVALLE",
     page_icon="🎓",
     layout="wide"
 )
@@ -46,25 +47,12 @@ st.markdown("""
         border-radius: 10px;
         background-color: white;
     }
-    div.stTextInput > div > div > input {
-        background-color: white;
-    }
     div.stTextArea > div > div > textarea {
         background-color: white;
+        border: 1px solid #741b28;
     }
     </style>
     """, unsafe_allow_html=True)
-
-# --- CABECERA ---
-col_logo, col_titulo = st.columns([1, 4])
-with col_logo:
-    # He puesto una URL genérica de Univalle, pero Streamlit usará el icono local si prefieres
-    st.image("https://www.univalle.edu/wp-content/uploads/2022/10/logo-univalle-horizontal.png", width=150)
-with col_titulo:
-    st.title("UNIVERSIDAD DEL VALLE S.A.")
-    st.subheader("Departamento de Contabilidad - Validador de Facturas")
-
-st.divider()
 
 # --- LÓGICA DE SESIÓN ---
 if 'base_siat' not in st.session_state:
@@ -74,11 +62,20 @@ if 'registros_finales' not in st.session_state:
 
 # --- SIDEBAR (CONFIGURACIÓN) ---
 with st.sidebar:
+    # CARGA DEL LOGO CON EL NOMBRE EXACTO
+    nombre_logo = "UNIVALLE LOGO.webp"
+    if os.path.exists(nombre_logo):
+        st.image(nombre_logo, use_container_width=True)
+    else:
+        st.markdown(f"### 🎓 UNIVALLE\n*(Archivo {nombre_logo} no detectado)*")
+    
+    st.divider()
     st.markdown("### ⚙️ Configuración")
     archivo_csv = st.file_uploader("Cargar Base Mensual (CSV)", type=['csv'])
     
     if archivo_csv:
         try:
+            # Configuración específica para el CSV de Impuestos Bolivia
             df_siat = pd.read_csv(archivo_csv, sep=',', encoding='latin1', on_bad_lines='skip')
             df_siat.columns = [c.strip() for c in df_siat.columns]
             st.session_state.base_siat = df_siat
@@ -91,59 +88,65 @@ with st.sidebar:
         st.session_state.registros_finales = []
         st.rerun()
 
+# --- CABECERA PRINCIPAL ---
+st.title("UNIVERSIDAD DEL VALLE S.A.")
+st.subheader("Departamento de Contabilidad - Validador de Facturas")
+st.divider()
+
 # --- PANEL DE PROCESAMIENTO ---
 if st.session_state.base_siat is not None:
     st.markdown("### 📦 Procesamiento por Lote")
-    urls_raw = st.text_area("Escanea las facturas aquí (una debajo de otra):", height=200, placeholder="Pega los links aquí...")
+    urls_raw = st.text_area("Escanea las facturas aquí (una por línea):", height=200, placeholder="Pega o escanea los links aquí...")
     
-    if st.button("PROCESAR LOTE DE FACTURAS"):
+    if st.button("🚀 PROCESAR LOTE DE FACTURAS"):
         links = [l.strip() for l in urls_raw.split('\n') if l.strip()]
+        base = st.session_state.base_siat
+        nuevos = 0
         
-        if links:
-            base = st.session_state.base_siat
-            nuevos = 0
-            
-            for link in links:
-                try:
-                    params = parse_qs(urlparse(link).query)
-                    cuf = params.get('cuf', [''])[0].strip()
-                    
-                    # Búsqueda en el archivo CSV (CODIGO DE AUTORIZACION es el CUF)
-                    match = base[base['CODIGO DE AUTORIZACION'] == cuf]
-                    
-                    if not match.empty:
-                        item = match.iloc[0]
+        for link in links:
+            try:
+                params = parse_qs(urlparse(link).query)
+                cuf = params.get('cuf', [''])[0].strip()
+                
+                # Búsqueda en el archivo CSV (CODIGO DE AUTORIZACION)
+                match = base[base['CODIGO DE AUTORIZACION'] == cuf]
+                
+                if not match.empty:
+                    item = match.iloc[0]
+                    # Evitar duplicados en la sesión actual
+                    if not any(d['CUF_FULL'] == cuf for d in st.session_state.registros_finales):
                         st.session_state.registros_finales.append({
                             "Fecha": item['FECHA DE FACTURA/DUI/DIM'],
                             "Razón Social": item['RAZON SOCIAL PROVEEDOR'],
-                            "NIT": item['NIT PROVEEDOR'],
+                            "NIT Proveedor": item['NIT PROVEEDOR'],
                             "Nro Factura": item['NUMERO FACTURA'],
                             "Monto (Bs)": item['IMPORTE TOTAL COMPRA'],
-                            "CUF": cuf[:15] + "..."
+                            "CUF": cuf[:15] + "...",
+                            "CUF_FULL": cuf
                         })
                         nuevos += 1
-                except:
-                    continue
-            
-            if nuevos > 0:
-                st.balloons()
-                st.success(f"Se añadieron {nuevos} facturas al reporte.")
-            else:
-                st.error("No se encontraron coincidencias para los links ingresados.")
+            except:
+                continue
+        
+        if nuevos > 0:
+            st.balloons()
+            st.success(f"✅ Se añadieron {nuevos} facturas al reporte.")
+        else:
+            st.warning("⚠️ No se encontraron facturas nuevas o los links son inválidos.")
 else:
-    st.warning("👈 Por favor, carga el archivo de Impuestos en la barra lateral.")
+    st.warning("👈 Por favor, carga el archivo 'ComprasParaConfirmar.csv' en la barra lateral para comenzar.")
 
 # --- TABLA Y EXPORTACIÓN ---
 if st.session_state.registros_finales:
     st.divider()
     st.write("### 📝 Reporte Contable Generado")
-    resumen = pd.DataFrame(st.session_state.registros_finales)
+    resumen = pd.DataFrame(st.session_state.registros_finales).drop(columns=['CUF_FULL'])
     st.dataframe(resumen, use_container_width=True)
     
     # Exportar Excel
     buff = BytesIO()
     with pd.ExcelWriter(buff, engine='openpyxl') as w:
-        resumen.to_excel(w, index=False)
+        resumen.to_excel(w, index=False, sheet_name='Facturas_Univalle')
     
     st.download_button(
         label="📥 DESCARGAR REPORTE EN EXCEL",
@@ -152,4 +155,4 @@ if st.session_state.registros_finales:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-st.markdown("<br><br><p style='text-align: center; color: #741b28;'>Sistema de Apoyo Contable Interno - UNIVALLE S.A. © 2026</p>", unsafe_allow_html=True)
+st.markdown("<br><br><p style='text-align: center; color: #741b28; font-weight: bold;'>Sistema de Apoyo Contable Interno - UNIVALLE S.A. © 2026</p>", unsafe_allow_html=True)
