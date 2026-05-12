@@ -8,12 +8,12 @@ import re
 # Configuración de página
 st.set_page_config(page_title="Gestión Contable | UNIVALLE", page_icon="🎓", layout="wide")
 
-# --- CSS DEFINITIVO: ESTÉTICA UNIVALLE + UPLOADER NEGRO CON TEXTO GUINDO ---
+# --- CSS DEFINITIVO: ALTO CONTRASTE ---
 st.markdown("""
     <style>
     .stApp { background-color: #fdf5e6; }
     
-    /* Barra Lateral */
+    /* Barra Lateral Guindo */
     [data-testid="stSidebar"] { background-color: #741b28 !important; }
     [data-testid="stSidebar"] div, [data-testid="stSidebar"] span, 
     [data-testid="stSidebar"] label, [data-testid="stSidebar"] p {
@@ -21,28 +21,40 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* PANEL DE CARGA NEGRO CON DETALLES GUINDOS */
+    /* PANEL DE CARGA NEGRO - CORRECCIÓN DE VISIBILIDAD */
     [data-testid="stFileUploader"] section {
         background-color: #000000 !important;
         border: 2px solid #b8860b !important;
         border-radius: 10px !important;
     }
     
-    /* Forzar fondo negro constante */
+    /* Forzar fondo negro y TEXTO BLANCO para que se lea 'Browse files' y 'Upload' */
     [data-testid="stFileUploaderDropzone"] {
         background-color: #000000 !important;
     }
 
-    /* TEXTO E ICONOS DEL UPLOADER EN GUINDO UNIVALLE */
+    /* Aquí corregimos lo que te chocaba: Texto e íconos en blanco/dorado */
     [data-testid="stFileUploader"] label, 
-    [data-testid="stFileUploader"] small, 
+    [data-testid="stFileUploader"] small,
     [data-testid="stFileUploader"] div,
     [data-testid="stFileUploader"] svg {
-        color: #741b28 !important;
-        fill: #741b28 !important;
+        color: #ffffff !important; 
+        fill: #ffffff !important;
+    }
+    
+    /* El botón pequeño que dice 'Browse files' */
+    [data-testid="stFileUploader"] button {
+        background-color: #333333 !important;
+        color: white !important;
+        border: 1px solid #b8860b !important;
     }
 
-    /* Botones y Títulos */
+    /* Nombre del archivo cargado en Dorado para que destaque */
+    [data-testid="stFileUploaderFileName"] {
+        color: #b8860b !important;
+    }
+
+    /* Estilos Generales */
     .stButton > button { border-radius: 8px; font-weight: bold; }
     .stButton > button[kind="primary"] {
         background-color: #741b28 !important;
@@ -52,7 +64,6 @@ st.markdown("""
     }
     h1, h2, h3 { color: #741b28; font-family: 'Times New Roman', serif; }
     
-    /* Tarjetas de Reporte */
     .factura-card {
         background-color: white;
         padding: 12px;
