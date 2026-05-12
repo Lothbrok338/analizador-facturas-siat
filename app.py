@@ -8,7 +8,7 @@ import re
 # Configuración de página
 st.set_page_config(page_title="Gestión Contable | UNIVALLE", page_icon="🎓", layout="wide")
 
-# --- CSS DEFINITIVO: ESTÉTICA UNIVALLE ---
+# --- CSS DEFINITIVO: ESTÉTICA UNIVALLE + BOTÓN NEGRO ---
 st.markdown("""
     <style>
     /* Fondo General */
@@ -22,11 +22,25 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* Botones Principales */
+    /* BOTÓN DE UPLOAD NEGRO */
+    [data-testid="stFileUploader"] section {
+        background-color: #000000 !important;
+        border: 1px solid #b8860b !important;
+        border-radius: 8px !important;
+    }
+    [data-testid="stFileUploader"] label, [data-testid="stFileUploader"] small {
+        color: white !important;
+    }
+    [data-testid="stFileUploader"] button {
+        background-color: #333333 !important;
+        color: white !important;
+        border: 1px solid #ffffff !important;
+    }
+
+    /* Botones Principales (Guinda) */
     .stButton > button { 
         border-radius: 8px; 
         font-weight: bold; 
-        transition: 0.3s;
     }
     .stButton > button[kind="primary"] {
         background-color: #741b28 !important;
@@ -34,35 +48,23 @@ st.markdown("""
         border: 2px solid #b8860b !important;
         height: 3.5em;
     }
-    .stButton > button:hover {
-        border-color: #fdf5e6 !important;
-        transform: scale(1.02);
-    }
 
     /* Botones de Eliminar (Pequeños) */
-    .btn-del > div > button {
+    .stButton > button:not([kind="primary"]) {
         background-color: #741b28 !important;
         color: white !important;
         border: 1px solid #b8860b !important;
-        font-size: 0.8rem !important;
     }
 
     /* Títulos */
     h1, h2, h3 { color: #741b28; font-family: 'Times New Roman', serif; }
     
-    /* Alertas Personalizadas */
+    /* Alertas y Cards */
     .stAlert {
         background-color: white !important;
         border: 1px solid #b8860b !important;
         color: #741b28 !important;
     }
-
-    /* Inputs y TextAreas */
-    textarea, input {
-        border: 1px solid #741b28 !important;
-    }
-
-    /* Contenedor de Factura */
     .factura-card {
         background-color: white;
         padding: 12px;
@@ -95,29 +97,27 @@ with st.sidebar:
             df_siat = pd.read_csv(archivo_csv, sep=',', encoding='latin1', on_bad_lines='skip')
             df_siat.columns = [c.strip() for c in df_siat.columns]
             st.session_state.base_siat = df_siat
-            st.success("✅ Base cargada correctamente")
+            st.success("✅ Base cargada")
         except Exception as e:
             st.error(f"Error: {e}")
     
     st.divider()
-    if st.button("🗑️ Resetear Aplicación", use_container_width=True):
+    if st.button("🗑️ Limpiar Sesión", use_container_width=True):
         st.session_state.registros_finales = []
         st.rerun()
 
 # --- CABECERA ---
 st.title("UNIVERSIDAD DEL VALLE S.A.")
-st.subheader("Sistema Contable - Validación de Facturas")
+st.subheader("Sistema de Validación Contable")
 st.divider()
 
 if st.session_state.base_siat is not None:
-    # ENTRADA MASIVA
     st.markdown("### 📥 Carga Masiva")
-    urls_raw = st.text_area("Escanea aquí tus códigos QR (procesamiento automático de links pegados):", height=150)
+    urls_raw = st.text_area("Escanea aquí tus códigos QR:", height=150)
     
-    if st.button("🚀 PROCESAR Y VALIDAR LOTE", type="primary", use_container_width=True):
-        # El Regex quirúrgico para separar por 'http'
+    if st.button("🚀 PROCESAR LOTE", type="primary", use_container_width=True):
+        # Regex para separar links pegados
         links = re.findall(r'https?://[^\s]+?(?=https?://|$)', urls_raw)
-        
         base = st.session_state.base_siat
         agregados = 0
         
@@ -128,7 +128,6 @@ if st.session_state.base_siat is not None:
                 cuf = params.get('cuf', [''])[0].strip()
                 
                 match = base[base['CODIGO DE AUTORIZACION'] == cuf]
-                
                 if not match.empty:
                     item = match.iloc[0]
                     if not any(d['CUF_FULL'] == cuf for d in st.session_state.registros_finales):
@@ -145,32 +144,30 @@ if st.session_state.base_siat is not None:
                 continue
         
         if agregados > 0:
-            st.success(f"Se añadieron {agregados} facturas nuevas al reporte.")
+            st.success(f"Se añadieron {agregados} facturas.")
         else:
-            st.warning("No se encontraron facturas nuevas en este lote.")
+            st.warning("No se encontraron facturas nuevas.")
 
 # --- REPORTE CONSOLIDADO ---
 if st.session_state.registros_finales:
     st.divider()
-    st.write("### 📊 Reporte Consolidado UNIVALLE")
+    st.write("### 📊 Reporte Consolidado")
     
-    # Lista de facturas con botón de eliminar estilizado
     for i, reg in enumerate(st.session_state.registros_finales):
         col_data, col_del = st.columns([9, 1])
         with col_data:
             st.markdown(f"""
             <div class='factura-card'>
                 <strong>{reg['Razón Social']}</strong> | 
-                <small>Factura: {reg['Nro Factura']} | Monto: {reg['Monto (Bs)']} Bs. | Fecha: {reg['Fecha']}</small>
+                <small>Factura: {reg['Nro Factura']} | Monto: {reg['Monto (Bs)']} Bs.</small>
             </div>
             """, unsafe_allow_html=True)
         with col_del:
-            st.write("") # Alineación manual
-            if st.button("Eliminar", key=f"del_{i}", help="Quitar de la lista"):
+            st.write("") 
+            if st.button("X", key=f"del_{i}"):
                 st.session_state.registros_finales.pop(i)
                 st.rerun()
 
-    # Tabla Final y Descarga
     st.markdown("---")
     df_res = pd.DataFrame(st.session_state.registros_finales).drop(columns=['CUF_FULL'])
     st.dataframe(df_res, use_container_width=True)
@@ -180,14 +177,13 @@ if st.session_state.registros_finales:
         df_res.to_excel(w, index=False)
     
     st.download_button(
-        label="📥 DESCARGAR REPORTE FINAL EXCEL",
+        label="📥 DESCARGAR REPORTE EXCEL",
         data=buff.getvalue(),
         file_name="Reporte_Contable_Univalle.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True
     )
 else:
     if st.session_state.base_siat is None:
-        st.info("💡 Por favor, carga el archivo de compras del SIAT en el panel de la izquierda.")
+        st.info("💡 Sube el CSV en el panel negro de la izquierda.")
 
 st.markdown("<br><p style='text-align: center; color: #741b28; opacity: 0.7;'>UNIVALLE S.A. © 2026</p>", unsafe_allow_html=True)
