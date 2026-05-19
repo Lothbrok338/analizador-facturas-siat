@@ -24,7 +24,7 @@ def init_connection():
     client = gspread.authorize(creds)
     return client.open_by_url(st.secrets["spreadsheet_url"])
 
-# --- FUNCIONES DE BASE DE DATOS EN LA NUBE (CON CACHÉ) ---
+# --- FUNCIONES DE BASE DE DATOS EN LA NUBE ---
 @st.cache_data(ttl=600)
 def cargar_historico():
     try:
@@ -46,7 +46,6 @@ def guardar_historico(df_nuevo):
     set_with_dataframe(ws, df_final)
     cargar_historico.clear()
 
-# FUNCIÓN CRÍTICA: Elimina de Google Sheets y limpia memoria caché
 def eliminar_de_historico_nube(cuf_eliminar):
     try:
         sheet = init_connection()
@@ -54,7 +53,7 @@ def eliminar_de_historico_nube(cuf_eliminar):
         celda = ws.find(str(cuf_eliminar).strip())
         if celda:
             ws.delete_rows(celda.row)
-            cargar_historico.clear()  # Forzar actualización inmediata de la caché
+            cargar_historico.clear()
             return True
     except:
         pass
@@ -105,12 +104,15 @@ st.markdown("""
     .factura-card { background-color: #ffffff; padding: 15px; border-left: 5px solid #741b28; border-radius: 4px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     .cuf-text { color: #b8860b; font-family: monospace; font-weight: bold; }
     .alerta-duplicado { color: #d32f2f; font-weight: bold; background-color: #ffebee; padding: 10px; border-radius: 5px; margin-bottom: 10px; border-left: 4px solid #d32f2f;}
+    .bandeja-box { background-color: #e8f5e9; padding: 15px; border-radius: 8px; border: 1px solid #4caf50; margin-bottom: 20px; }
 </style>
 """, unsafe_allow_html=True)
 
 # --- LÓGICA DE SESIÓN ---
 if 'registros_sesion' not in st.session_state:
     st.session_state.registros_sesion = []
+if 'registros_pendientes' not in st.session_state:
+    st.session_state.registros_pendientes = []
 
 # --- PANEL LATERAL ---
 with st.sidebar:
@@ -155,6 +157,7 @@ with st.sidebar:
     st.divider()
     if st.button("🔄 Limpiar Pantalla", use_container_width=True):
         st.session_state.registros_sesion = []
+        st.session_state.registros_pendientes = []
         st.rerun()
 
 # --- INTERFAZ PRINCIPAL ---
@@ -171,16 +174,15 @@ if base_siat is not None:
     with tab1:
         urls_raw = st.text_area("Depósito de URLs para procesamiento masivo:", height=150, placeholder="Pega los enlaces aquí...", key="txt_urls")
         
-        if st.button("🚀 EJECUTAR PROCESAMIENTO DE DATOS", type="primary", use_container_width=True, key="btn_qr"):
+        if st.button("🚀 PROCESAR ENLACES", type="primary", use_container_width=True, key="btn_qr"):
             links = re.findall(r'https?://[^\s]+?(?=https?://|$)', urls_raw)
             historico_db = cargar_historico()
             cufs_historicos = historico_db['CUF / Autorización'].tolist() if not historico_db.empty else []
             
             agregados = 0
             duplicados = 0
-            nuevos_registros_df = []
             
-            with st.spinner("Procesando enlaces..."):
+            with st.spinner("Buscando enlaces en la base maestra..."):
                 for link in links:
                     try:
                         link_clean = link.strip().rstrip(',').rstrip(';')
@@ -190,7 +192,10 @@ if base_siat is not None:
                         if not cuf_extraido:
                             continue
 
-                        if cuf_extraido in cufs_historicos or any(d['CUF / Autorización'] == cuf_extraido for d in st.session_state.registros_sesion):
+                        # Validar duplicados contra la nube, la sesión actual Y la bandeja de pendientes
+                        if cuf_extraido in cufs_historicos or \
+                           any(d['CUF / Autorización'] == cuf_extraido for d in st.session_state.registros_sesion) or \
+                           any(d['CUF / Autorización'] == cuf_extraido for d in st.session_state.registros_pendientes):
                             duplicados += 1
                             continue
 
@@ -212,20 +217,18 @@ if base_siat is not None:
                                 "Monto (Bs)": item['IMPORTE TOTAL COMPRA'],
                                 "CUF / Autorización": cuf_extraido
                             }
-                            st.session_state.registros_sesion.append(nuevo_registro)
-                            nuevos_registros_df.append(nuevo_registro)
+                            # AHORA SE VAN A LA BANDEJA DE PENDIENTES
+                            st.session_state.registros_pendientes.append(nuevo_registro)
                             agregados += 1
                     except:
                         continue
                 
-                if nuevos_registros_df:
-                    guardar_historico(pd.DataFrame(nuevos_registros_df))
-                    st.success(f"Operación exitosa: {agregados} registros validados y subidos a la nube.")
-                
+                if agregados > 0:
+                    st.success(f"Búsqueda exitosa: Se enviaron {agregados} registros a la Bandeja de Revisión abajo.")
                 if duplicados > 0:
-                    st.markdown(f"<div class='alerta-duplicado'>⚠️ SE INHIBIERON {duplicados} FACTURAS REPETIDAS (Ya se encuentran registradas en la nube).</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='alerta-duplicado'>⚠️ SE IGNORARON {duplicados} ENLACES (Ya registrados o en revisión).</div>", unsafe_allow_html=True)
 
-    # PESTAÑA 2: MOTOR DE BÚSQUEDA MANUAL MEJORADO (FLEXIBLE O CONDICIONAL)
+    # PESTAÑA 2: MOTOR DE BÚSQUEDA MANUAL
     with tab2:
         st.markdown("### Búsqueda de Comprobante en Base Maestra")
         col_f, col_n = st.columns(2)
@@ -234,18 +237,16 @@ if base_siat is not None:
         with col_n:
             nit_in = st.text_input("NIT del Proveedor (Opcional):", placeholder="Ej. 1020304029", key="input_nit")
             
-        if st.button("🔍 LOCALIZAR Y CONSOLIDAR REGISTRO", type="primary", use_container_width=True, key="btn_manual"):
+        if st.button("🔍 LOCALIZAR REGISTROS", type="primary", use_container_width=True, key="btn_manual"):
             nro_val = nro_factura_in.strip()
             nit_val = nit_in.strip()
             
             if not nro_val and not nit_val:
-                st.warning("⚠️ Por favor, introduzca al menos un criterio para iniciar la búsqueda (Número de Factura o NIT).")
+                st.warning("⚠️ Por favor, introduzca al menos un criterio para iniciar la búsqueda.")
             else:
-                # Normalización técnica de columnas de la base maestra
                 base_siat['NUMERO FACTURA_STR'] = base_siat['NUMERO FACTURA'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
                 base_siat['NIT_STR'] = base_siat['NIT PROVEEDOR'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
                 
-                # Filtrado flexible dependiente de qué campo completó el usuario
                 if nro_val and nit_val:
                     match_manual = base_siat[(base_siat['NUMERO FACTURA_STR'] == nro_val) & (base_siat['NIT_STR'] == nit_val)]
                 elif nro_val:
@@ -254,19 +255,20 @@ if base_siat is not None:
                     match_manual = base_siat[base_siat['NIT_STR'] == nit_val]
                 
                 if match_manual.empty:
-                    st.error("No se localizó ningún registro coincidente en la Base Maestra SIAT con los datos proveídos.")
+                    st.error("No se localizó ningún registro coincidente.")
                 else:
                     historico_db = cargar_historico()
                     cufs_historicos = historico_db['CUF / Autorización'].tolist() if not historico_db.empty else []
                     
                     agregados_m = 0
                     duplicados_m = 0
-                    nuevos_m_df = []
                     
                     for idx, item in match_manual.iterrows():
                         cuf_extraido = str(item['CODIGO DE AUTORIZACION']).strip()
                         
-                        if cuf_extraido in cufs_historicos or any(d['CUF / Autorización'] == cuf_extraido for d in st.session_state.registros_sesion):
+                        if cuf_extraido in cufs_historicos or \
+                           any(d['CUF / Autorización'] == cuf_extraido for d in st.session_state.registros_sesion) or \
+                           any(d['CUF / Autorización'] == cuf_extraido for d in st.session_state.registros_pendientes):
                             duplicados_m += 1
                             continue
                             
@@ -284,23 +286,68 @@ if base_siat is not None:
                             "Monto (Bs)": item['IMPORTE TOTAL COMPRA'],
                             "CUF / Autorización": cuf_extraido
                         }
-                        st.session_state.registros_sesion.append(nuevo_registro)
-                        nuevos_m_df.append(nuevo_registro)
+                        # AHORA SE VAN A LA BANDEJA DE PENDIENTES
+                        st.session_state.registros_pendientes.append(nuevo_registro)
                         agregados_m += 1
                     
-                    if nuevos_m_df:
-                        guardar_historico(pd.DataFrame(nuevos_m_df))
-                        st.success(f"✅ Se procesaron {agregados_m} registros coincidentes de forma exitosa hacia el archivo central.")
-                    
+                    if agregados_m > 0:
+                        st.success(f"✅ Se enviaron {agregados_m} registros coincidentes a la Bandeja de Revisión abajo.")
                     if duplicados_m > 0:
-                        st.markdown(f"<div class='alerta-duplicado'>⚠️ CONTROL DE DUPLICADOS: Se omitieron {duplicados_m} registros coincidentes por ya existir en el histórico.</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='alerta-duplicado'>⚠️ CONTROL DE DUPLICADOS: {duplicados_m} registros ya existían en el sistema.</div>", unsafe_allow_html=True)
 
-# --- REPORTE CON BOTÓN DE ELIMINACIÓN TOTAL ---
+# --- BANDEJA DE REVISIÓN (STAGING AREA) ---
+if st.session_state.registros_pendientes:
+    st.divider()
+    st.markdown("<div class='bandeja-box'><h3>📥 Bandeja de Revisión</h3><p>Verifica los datos obtenidos. Desmarca la casilla de aquellos que <b>NO</b> desees subir a la base oficial y haz clic en Confirmar.</p></div>", unsafe_allow_html=True)
+    
+    # Preparamos los datos para el editor interactivo
+    df_pendientes = pd.DataFrame(st.session_state.registros_pendientes)
+    df_pendientes.insert(0, "Guardar", True) # Agrega la columna de Checkbox al inicio
+    
+    # Widget interactivo
+    edited_df = st.data_editor(
+        df_pendientes,
+        hide_index=True,
+        column_config={
+            "Guardar": st.column_config.CheckboxColumn(
+                "¿Aprobar?",
+                help="Selecciona para enviar al reporte oficial",
+                default=True,
+            )
+        },
+        disabled=["Fecha", "Razón Social", "NIT", "Nro Factura", "Monto (Bs)", "CUF / Autorización"],
+        use_container_width=True
+    )
+    
+    col_btn1, col_btn2 = st.columns([1, 1])
+    with col_btn1:
+        if st.button("✅ CONFIRMAR Y ENVIAR A LA NUBE", type="primary", use_container_width=True):
+            # Filtramos solo los que quedaron marcados con True
+            df_aprobados = edited_df[edited_df["Guardar"] == True].drop(columns=["Guardar"])
+            
+            if not df_aprobados.empty:
+                with st.spinner("Subiendo registros confirmados a Google Sheets..."):
+                    guardar_historico(df_aprobados)
+                    # Pasan a ser "sesión oficial" para la vista de abajo
+                    st.session_state.registros_sesion.extend(df_aprobados.to_dict('records'))
+                st.success(f"¡Éxito! Se consolidaron {len(df_aprobados)} facturas en el sistema oficial.")
+            else:
+                st.warning("No aprobaste ninguna factura.")
+                
+            # Limpiamos la bandeja
+            st.session_state.registros_pendientes = []
+            st.rerun()
+            
+    with col_btn2:
+        if st.button("🗑️ DESCARTAR TODAS", use_container_width=True):
+            st.session_state.registros_pendientes = []
+            st.rerun()
+
+# --- REPORTE CONSOLIDADOS EN LA SESIÓN ---
 if st.session_state.registros_sesion:
     st.divider()
-    st.write("### 📊 Registros Procesados en la Sesión Actual")
+    st.write("### 📊 Registros Oficiales (Sesión Actual)")
     
-    # Iteración inversa para evitar problemas de índice al eliminar elementos de la lista en vivo
     for i, reg in enumerate(st.session_state.registros_sesion):
         col_data, col_del = st.columns([12, 1])
         with col_data:
@@ -313,7 +360,6 @@ if st.session_state.registros_sesion:
             """, unsafe_allow_html=True)
         with col_del:
             st.write("")
-            # El botón ahora ejecuta la remoción física en Google Sheets y refresca la app
             if st.button("✖", key=f"del_{i}", help="Eliminar permanentemente de la pantalla y de Google Sheets"):
                 with st.spinner("Removiendo de la base de datos..."):
                     eliminar_de_historico_nube(reg['CUF / Autorización'])
@@ -338,7 +384,7 @@ if st.session_state.registros_sesion:
 else:
     if base_siat is None:
         st.info("📌 Sistema en espera. Por favor, vincule la base de datos diaria para iniciar el procesamiento.")
-    else:
-        st.info("📌 Base operativa en la nube. Seleccione un método arriba (Enlaces o Búsqueda Manual) para validar registros.")
+    elif not st.session_state.registros_pendientes:
+        st.info("📌 Base operativa en la nube. Seleccione un método arriba (Enlaces o Búsqueda Manual) para encontrar registros.")
 
 st.markdown("<br><p style='text-align: center; color: #741b28; opacity: 0.6;'>DEPARTAMENTO DE CONTABILIDAD | UNIVALLE S.A. © 2026</p>", unsafe_allow_html=True)
