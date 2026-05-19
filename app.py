@@ -318,12 +318,19 @@ if base_siat is not None:
 # --- BANDEJA DE REVISIÓN (STAGING AREA) ---
 if st.session_state.registros_pendientes:
     st.divider()
-    st.markdown("<div class='bandeja-box'><h3>📥 Bandeja de Revisión</h3><p>Verifica los datos obtenidos. Desmarca la casilla de aquellos que <b>NO</b> desees subir a la base oficial y haz clic en Confirmar.</p></div>", unsafe_allow_html=True)
+    st.markdown("<div class='bandeja-box'><h3>📥 Bandeja de Revisión</h3><p>Verifica los datos obtenidos. Las columnas se han ordenado para que veas el Monto inmediatamente sin necesidad de desplazar la barra.</p></div>", unsafe_allow_html=True)
     
     df_pendientes = pd.DataFrame(st.session_state.registros_pendientes)
     df_pendientes.insert(0, "Guardar", True)
     
-    # Ocultamos visualmente de la tabla interactiva las columnas que van solo al Excel
+    # ORDENACIÓN DE INTERFAZ: Mandamos el CUF al final de los campos visibles en la tabla de edición
+    columnas_orden_tabla = [
+        "Guardar", "Fecha", "Razón Social", "NIT", "Nro Factura", "IMPORTE BASE CF", "CUF / Autorización",
+        "IMPORTE TOTAL COMPRA", "IMPORTE ICE", "TASAS", "SUBTOTAL", 
+        "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA", "CREDITO FISCAL"
+    ]
+    df_pendientes = df_pendientes[columnas_orden_tabla]
+    
     edited_df = st.data_editor(
         df_pendientes,
         hide_index=True,
@@ -388,14 +395,14 @@ if st.session_state.registros_sesion:
     st.markdown("#### 📥 Descargar Historial Completo Compilado de la Nube")
     df_historico_completo = cargar_historico()
     
-    # Vista simplificada en la pantalla de la app
+    # ORDENACIÓN DE INTERFAZ: El CUF se posiciona rigurosamente al final en la tabla resumen de la pantalla
     columnas_vista = ["Fecha", "Razón Social", "NIT", "Nro Factura", "IMPORTE BASE CF", "CUF / Autorización"]
     columnas_existentes_vista = [col for col in columnas_vista if col in df_historico_completo.columns]
     
     if not df_historico_completo.empty:
         st.dataframe(df_historico_completo[columnas_existentes_vista], use_container_width=True)
     
-    # Reordenamiento estricto e inclusión de columnas ocultas SOLO para el Excel final
+    # El archivo Excel mantiene el orden de columnas técnicas solicitadas para la descarga
     columnas_validas_excel = [col for col in ORDEN_COLUMNAS_SISTEMA if col in df_historico_completo.columns]
     df_excel_final = df_historico_completo[columnas_validas_excel]
     
