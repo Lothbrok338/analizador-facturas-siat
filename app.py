@@ -24,6 +24,13 @@ def init_connection():
     client = gspread.authorize(creds)
     return client.open_by_url(st.secrets["spreadsheet_url"])
 
+# --- COLECION DE COLUMNAS CONFIGURADAS ---
+ORDEN_COLUMNAS_SISTEMA = [
+    "Fecha", "Razón Social", "NIT", "Nro Factura", "CUF / Autorización",
+    "IMPORTE TOTAL COMPRA", "IMPORTE ICE", "TASAS", "SUBTOTAL", 
+    "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA", "IMPORTE BASE CF", "CREDITO FISCAL"
+]
+
 # --- FUNCIONES DE BASE DE DATOS EN LA NUBE ---
 @st.cache_data(ttl=600)
 def cargar_historico():
@@ -32,25 +39,20 @@ def cargar_historico():
         ws = sheet.worksheet("HISTORICO_FACTURAS")
         df = get_as_dataframe(ws).dropna(how='all').dropna(axis=1, how='all')
         if df.empty or 'CUF / Autorización' not in df.columns:
-            # Estructura interna actualizada con todas las columnas
-            return pd.DataFrame(columns=[
-                "Fecha", "Razón Social", "NIT", "Nro Factura", "IMPORTE BASE CF", "CUF / Autorización",
-                "IMPORTE TOTAL COMPRA", "IMPORTE ICE", "TASAS", "SUBTOTAL", 
-                "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA", "CREDITO FISCAL"
-            ])
+            return pd.DataFrame(columns=ORDEN_COLUMNAS_SISTEMA)
         return df
     except Exception as e:
-        return pd.DataFrame(columns=[
-                "Fecha", "Razón Social", "NIT", "Nro Factura", "IMPORTE BASE CF", "CUF / Autorización",
-                "IMPORTE TOTAL COMPRA", "IMPORTE ICE", "TASAS", "SUBTOTAL", 
-                "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA", "CREDITO FISCAL"
-            ])
+        return pd.DataFrame(columns=ORDEN_COLUMNAS_SISTEMA)
 
 def guardar_historico(df_nuevo):
     sheet = init_connection()
     ws = sheet.worksheet("HISTORICO_FACTURAS")
     df_actual = cargar_historico()
     df_final = pd.concat([df_actual, df_nuevo], ignore_index=True)
+    
+    # Garantizar el orden secuencial estricto en la base de datos
+    df_final = df_final[ORDEN_COLUMNAS_SISTEMA]
+    
     ws.clear()
     set_with_dataframe(ws, df_final)
     cargar_historico.clear()
@@ -217,20 +219,18 @@ if base_siat is not None:
                             except:
                                 razon_social = rs_raw
                             
-                            # AQUÍ SE ALMACENAN TODAS LAS COLUMNAS (ALGUNAS OCULTAS PARA EXCEL)
                             nuevo_registro = {
                                 "Fecha": item.get('FECHA DE FACTURA/DUI/DIM', ''),
                                 "Razón Social": razon_social,
                                 "NIT": item.get('NIT PROVEEDOR', ''),
                                 "Nro Factura": item.get('NUMERO FACTURA', ''),
-                                "IMPORTE BASE CF": item.get('IMPORTE BASE CF', 0), # Visible en App
                                 "CUF / Autorización": cuf_extraido,
-                                # Datos extra solo para el Excel
                                 "IMPORTE TOTAL COMPRA": item.get('IMPORTE TOTAL COMPRA', 0),
                                 "IMPORTE ICE": item.get('IMPORTE ICE', 0),
                                 "TASAS": item.get('TASAS', 0),
                                 "SUBTOTAL": item.get('SUBTOTAL', 0),
                                 "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA": item.get('DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA', 0),
+                                "IMPORTE BASE CF": item.get('IMPORTE BASE CF', 0),
                                 "CREDITO FISCAL": item.get('CREDITO FISCAL', 0)
                             }
                             st.session_state.registros_pendientes.append(nuevo_registro)
@@ -298,13 +298,13 @@ if base_siat is not None:
                             "Razón Social": razon_social,
                             "NIT": item.get('NIT PROVEEDOR', ''),
                             "Nro Factura": item.get('NUMERO FACTURA', ''),
-                            "IMPORTE BASE CF": item.get('IMPORTE BASE CF', 0), # Visible en App
                             "CUF / Autorización": cuf_extraido,
                             "IMPORTE TOTAL COMPRA": item.get('IMPORTE TOTAL COMPRA', 0),
                             "IMPORTE ICE": item.get('IMPORTE ICE', 0),
                             "TASAS": item.get('TASAS', 0),
                             "SUBTOTAL": item.get('SUBTOTAL', 0),
                             "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA": item.get('DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA', 0),
+                            "IMPORTE BASE CF": item.get('IMPORTE BASE CF', 0),
                             "CREDITO FISCAL": item.get('CREDITO FISCAL', 0)
                         }
                         st.session_state.registros_pendientes.append(nuevo_registro)
@@ -323,7 +323,7 @@ if st.session_state.registros_pendientes:
     df_pendientes = pd.DataFrame(st.session_state.registros_pendientes)
     df_pendientes.insert(0, "Guardar", True)
     
-    # Ocultamos visualmente las columnas extra en la tabla interactiva
+    # Ocultamos visualmente de la tabla interactiva las columnas que van solo al Excel
     edited_df = st.data_editor(
         df_pendientes,
         hide_index=True,
@@ -369,8 +369,7 @@ if st.session_state.registros_sesion:
     for i, reg in enumerate(st.session_state.registros_sesion):
         col_data, col_del = st.columns([12, 1])
         with col_data:
-            # La tarjeta visual ahora utiliza el IMPORTE BASE CF
-            monto_vista = reg.get('IMPORTE BASE CF', '')
+            monto_vista = reg.get('IMPORTE BASE CF', 0)
             st.markdown(f"""
             <div class='factura-card'>
                 <span style='color: #741b28; font-weight: bold; font-size: 1.1em;'>{reg['Razón Social']}</span><br>
@@ -389,17 +388,20 @@ if st.session_state.registros_sesion:
     st.markdown("#### 📥 Descargar Historial Completo Compilado de la Nube")
     df_historico_completo = cargar_historico()
     
-    # Se filtran las columnas SOLO para la vista en pantalla (para que se vea limpio)
+    # Vista simplificada en la pantalla de la app
     columnas_vista = ["Fecha", "Razón Social", "NIT", "Nro Factura", "IMPORTE BASE CF", "CUF / Autorización"]
-    columnas_existentes = [col for col in columnas_vista if col in df_historico_completo.columns]
+    columnas_existentes_vista = [col for col in columnas_vista if col in df_historico_completo.columns]
     
     if not df_historico_completo.empty:
-        st.dataframe(df_historico_completo[columnas_existentes], use_container_width=True)
+        st.dataframe(df_historico_completo[columnas_existentes_vista], use_container_width=True)
     
-    # Pero el archivo Excel se empaqueta con TODAS las columnas (incluyendo las ocultas)
+    # Reordenamiento estricto e inclusión de columnas ocultas SOLO para el Excel final
+    columnas_validas_excel = [col for col in ORDEN_COLUMNAS_SISTEMA if col in df_historico_completo.columns]
+    df_excel_final = df_historico_completo[columnas_validas_excel]
+    
     buff = BytesIO()
     with pd.ExcelWriter(buff, engine='openpyxl') as w:
-        df_historico_completo.to_excel(w, index=False)
+        df_excel_final.to_excel(w, index=False)
     
     st.download_button(
         label="DESCARGAR INFORME TÉCNICO COMPLETO (EXCEL)",
