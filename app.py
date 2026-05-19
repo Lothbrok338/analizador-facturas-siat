@@ -8,6 +8,8 @@ import json
 import gspread
 from google.oauth2.service_account import Credentials
 from gspread_dataframe import set_with_dataframe, get_as_dataframe
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Gestión Contable | UNIVALLE", page_icon="🎓", layout="wide")
@@ -96,7 +98,63 @@ def guardar_siat_maestro(df_nuevo):
     set_with_dataframe(ws, df_combinado)
     cargar_siat_maestro.clear()
 
-# --- ESTILOS CSS PROFESIONALES ---
+# --- MOTOR DE ESTILIZACIÓN MINIMALISTA EXCEL ---
+def estilizar_hoja_excel(ws):
+    # Forzar visibilidad de líneas de cuadrícula internas
+    ws.views.sheetView[0].showGridLines = True
+    
+    # Paleta y Tipografía Minimalista
+    fuente_encabezado = Font(name='Segoe UI', size=11, bold=True, color='FFFFFF')
+    relleno_encabezado = PatternFill(start_color='741B28', end_color='741B28', fill_type='solid') # Vino Institucional
+    fuente_cuerpo = Font(name='Segoe UI', size=10, bold=False, color='1A1A1A')
+    relleno_cebra = PatternFill(start_color='FDFDF9', end_color='FDFDF9', fill_type='solid') # Crema Marfil tenue
+    
+    borde_sutil = Border(
+        left=Side(style='thin', color='E0E0E0'),
+        right=Side(style='thin', color='E0E0E0'),
+        top=Side(style='thin', color='E0E0E0'),
+        bottom=Side(style='thin', color='E0E0E0')
+    )
+    
+    # 1. Estilizar fila de encabezados
+    for cell in ws[1]:
+        cell.font = fuente_encabezado
+        cell.fill = relleno_encabezado
+        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        cell.border = borde_sutil
+    ws.row_dimensions[1].height = 28
+    
+    # 2. Estilizar filas de datos
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=ws.max_column), start=2):
+        ws.row_dimensions[row_idx].height = 20
+        es_par = (row_idx % 2 == 0)
+        
+        for cell in row:
+            cell.font = fuente_cuerpo
+            cell.border = borde_sutil
+            if es_par:
+                cell.fill = relleno_cebra
+                
+            # Formatear y alinear según el tipo de dato
+            if isinstance(cell.value, (int, float)):
+                cell.alignment = Alignment(horizontal='right', vertical='center')
+                cell.number_format = '#,##0.00'
+            elif cell.value and (any(x in str(cell.value) for x in ['-', '/']) or str(cell.value).isdigit() and len(str(cell.value)) > 5):
+                # Centrar fechas, NITs, números de factura largos
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            else:
+                cell.alignment = Alignment(horizontal='left', vertical='center')
+                
+    # 3. Auto-ajustar el ancho de las columnas dinámicamente
+    for col in ws.columns:
+        max_len = 0
+        col_letter = get_column_letter(col[0].column)
+        for cell in col:
+            if cell.value is not None:
+                max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 13)
+
+# --- ESTILOS CSS PROFESIONALES APP ---
 st.markdown("""
 <style>
     .stApp { background-color: #fdf5e6; }
@@ -366,7 +424,7 @@ if st.session_state.registros_pendientes:
             st.session_state.registros_pendientes = []
             st.rerun()
 
-# --- REPORTE CONSOLIDADOS EN LA SESIÓN Y BOTONES DE DESCARGA SEPARADOS ---
+# --- REPORTE CONSOLIDADOS EN LA SESIÓN Y BOTONES DE DESCARGA ---
 if st.session_state.registros_sesion:
     st.divider()
     st.write("### 📊 Registros Oficiales (Sesión Actual)")
@@ -393,22 +451,22 @@ if st.session_state.registros_sesion:
     st.markdown("#### 📥 Panel de Descarga de Informes")
     df_historico_completo = cargar_historico()
     
-    # Vista simplificada en la pantalla de la app (CUF al final)
     columnas_vista = ["Fecha", "Razón Social", "NIT", "Nro Factura", "IMPORTE BASE CF", "CUF / Autorización"]
     columnas_existentes_vista = [col for col in columnas_vista if col in df_historico_completo.columns]
     
     if not df_historico_completo.empty:
         st.dataframe(df_historico_completo[columnas_existentes_vista], use_container_width=True)
     
-    # --- PREPARACIÓN DEL BOTÓN 1: INFORME TÉCNICO INTERNO COMPLETO ---
+    # --- PROCESAMIENTO DEL INFORME TÉCNICO INTERNO ---
     columnas_validas_excel = [col for col in ORDEN_COLUMNAS_SISTEMA if col in df_historico_completo.columns]
     df_excel_final = df_historico_completo[columnas_validas_excel]
     
     buff_tecnico = BytesIO()
     with pd.ExcelWriter(buff_tecnico, engine='openpyxl') as w:
-        df_excel_final.to_excel(w, index=False)
+        df_excel_final.to_excel(w, index=False, sheet_name="Control Técnico")
+        estilizar_hoja_excel(w.sheets["Control Técnico"])
         
-    # --- PREPARACIÓN DEL BOTÓN 2: FORMATO SAP CON COLUMNA ADICIONAL AL FINAL ---
+    # --- PROCESAMIENTO DEL FORMATO DE IMPORTACIÓN SAP ---
     columnas_sap = [
         "Sociedad", "Código del Proveedor", "Fecha de Documento", "Fecha de Contabilización",
         "Número de Factura", "Número de Autorización", "Código de Control", "Condiciones de pago",
@@ -419,7 +477,6 @@ if st.session_state.registros_sesion:
     if not df_historico_completo.empty:
         num_filas = len(df_historico_completo)
         
-        # Mapeo blindado fila por fila
         df_sap["Sociedad"] = ["BO01"] * num_filas
         df_sap["Código del Proveedor"] = [""] * num_filas
         df_sap["Fecha de Documento"] = df_historico_completo["Fecha"].values
@@ -442,7 +499,6 @@ if st.session_state.registros_sesion:
         else:
             df_sap["MONTO RECIBO FACTURA (BOB)"] = [0] * num_filas
 
-        # Nueva columna mapeada al final de la estructura de SAP
         if "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA" in df_historico_completo.columns:
             df_sap["DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA"] = df_historico_completo["DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA"].values
         else:
@@ -452,9 +508,10 @@ if st.session_state.registros_sesion:
 
     buff_sap = BytesIO()
     with pd.ExcelWriter(buff_sap, engine='openpyxl') as w:
-        df_sap.to_excel(w, index=False)
+        df_sap.to_excel(w, index=False, sheet_name="Layout SAP")
+        estilizar_hoja_excel(w.sheets["Layout SAP"])
     
-    # DESPLIEGUE GEOMÉTRICO DE DOS BOTONES
+    # DESPLIEGUE GEOMÉTRICO DE DOS BOTONES PROFESIONALES
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
         st.download_button(
