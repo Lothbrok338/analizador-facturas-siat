@@ -32,10 +32,19 @@ def cargar_historico():
         ws = sheet.worksheet("HISTORICO_FACTURAS")
         df = get_as_dataframe(ws).dropna(how='all').dropna(axis=1, how='all')
         if df.empty or 'CUF / Autorización' not in df.columns:
-            return pd.DataFrame(columns=["Fecha", "Razón Social", "NIT", "Nro Factura", "Monto (Bs)", "CUF / Autorización"])
+            # Estructura interna actualizada con todas las columnas
+            return pd.DataFrame(columns=[
+                "Fecha", "Razón Social", "NIT", "Nro Factura", "IMPORTE BASE CF", "CUF / Autorización",
+                "IMPORTE TOTAL COMPRA", "IMPORTE ICE", "TASAS", "SUBTOTAL", 
+                "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA", "CREDITO FISCAL"
+            ])
         return df
     except Exception as e:
-        return pd.DataFrame(columns=["Fecha", "Razón Social", "NIT", "Nro Factura", "Monto (Bs)", "CUF / Autorización"])
+        return pd.DataFrame(columns=[
+                "Fecha", "Razón Social", "NIT", "Nro Factura", "IMPORTE BASE CF", "CUF / Autorización",
+                "IMPORTE TOTAL COMPRA", "IMPORTE ICE", "TASAS", "SUBTOTAL", 
+                "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA", "CREDITO FISCAL"
+            ])
 
 def guardar_historico(df_nuevo):
     sheet = init_connection()
@@ -192,7 +201,6 @@ if base_siat is not None:
                         if not cuf_extraido:
                             continue
 
-                        # Validar duplicados contra la nube, la sesión actual Y la bandeja de pendientes
                         if cuf_extraido in cufs_historicos or \
                            any(d['CUF / Autorización'] == cuf_extraido for d in st.session_state.registros_sesion) or \
                            any(d['CUF / Autorización'] == cuf_extraido for d in st.session_state.registros_pendientes):
@@ -209,15 +217,22 @@ if base_siat is not None:
                             except:
                                 razon_social = rs_raw
                             
+                            # AQUÍ SE ALMACENAN TODAS LAS COLUMNAS (ALGUNAS OCULTAS PARA EXCEL)
                             nuevo_registro = {
-                                "Fecha": item['FECHA DE FACTURA/DUI/DIM'],
+                                "Fecha": item.get('FECHA DE FACTURA/DUI/DIM', ''),
                                 "Razón Social": razon_social,
-                                "NIT": item['NIT PROVEEDOR'],
-                                "Nro Factura": item['NUMERO FACTURA'],
-                                "Monto (Bs)": item['IMPORTE TOTAL COMPRA'],
-                                "CUF / Autorización": cuf_extraido
+                                "NIT": item.get('NIT PROVEEDOR', ''),
+                                "Nro Factura": item.get('NUMERO FACTURA', ''),
+                                "IMPORTE BASE CF": item.get('IMPORTE BASE CF', 0), # Visible en App
+                                "CUF / Autorización": cuf_extraido,
+                                # Datos extra solo para el Excel
+                                "IMPORTE TOTAL COMPRA": item.get('IMPORTE TOTAL COMPRA', 0),
+                                "IMPORTE ICE": item.get('IMPORTE ICE', 0),
+                                "TASAS": item.get('TASAS', 0),
+                                "SUBTOTAL": item.get('SUBTOTAL', 0),
+                                "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA": item.get('DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA', 0),
+                                "CREDITO FISCAL": item.get('CREDITO FISCAL', 0)
                             }
-                            # AHORA SE VAN A LA BANDEJA DE PENDIENTES
                             st.session_state.registros_pendientes.append(nuevo_registro)
                             agregados += 1
                     except:
@@ -279,14 +294,19 @@ if base_siat is not None:
                             razon_social = rs_raw
                             
                         nuevo_registro = {
-                            "Fecha": item['FECHA DE FACTURA/DUI/DIM'],
+                            "Fecha": item.get('FECHA DE FACTURA/DUI/DIM', ''),
                             "Razón Social": razon_social,
-                            "NIT": item['NIT PROVEEDOR'],
-                            "Nro Factura": item['NUMERO FACTURA'],
-                            "Monto (Bs)": item['IMPORTE TOTAL COMPRA'],
-                            "CUF / Autorización": cuf_extraido
+                            "NIT": item.get('NIT PROVEEDOR', ''),
+                            "Nro Factura": item.get('NUMERO FACTURA', ''),
+                            "IMPORTE BASE CF": item.get('IMPORTE BASE CF', 0), # Visible en App
+                            "CUF / Autorización": cuf_extraido,
+                            "IMPORTE TOTAL COMPRA": item.get('IMPORTE TOTAL COMPRA', 0),
+                            "IMPORTE ICE": item.get('IMPORTE ICE', 0),
+                            "TASAS": item.get('TASAS', 0),
+                            "SUBTOTAL": item.get('SUBTOTAL', 0),
+                            "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA": item.get('DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA', 0),
+                            "CREDITO FISCAL": item.get('CREDITO FISCAL', 0)
                         }
-                        # AHORA SE VAN A LA BANDEJA DE PENDIENTES
                         st.session_state.registros_pendientes.append(nuevo_registro)
                         agregados_m += 1
                     
@@ -300,41 +320,39 @@ if st.session_state.registros_pendientes:
     st.divider()
     st.markdown("<div class='bandeja-box'><h3>📥 Bandeja de Revisión</h3><p>Verifica los datos obtenidos. Desmarca la casilla de aquellos que <b>NO</b> desees subir a la base oficial y haz clic en Confirmar.</p></div>", unsafe_allow_html=True)
     
-    # Preparamos los datos para el editor interactivo
     df_pendientes = pd.DataFrame(st.session_state.registros_pendientes)
-    df_pendientes.insert(0, "Guardar", True) # Agrega la columna de Checkbox al inicio
+    df_pendientes.insert(0, "Guardar", True)
     
-    # Widget interactivo
+    # Ocultamos visualmente las columnas extra en la tabla interactiva
     edited_df = st.data_editor(
         df_pendientes,
         hide_index=True,
         column_config={
-            "Guardar": st.column_config.CheckboxColumn(
-                "¿Aprobar?",
-                help="Selecciona para enviar al reporte oficial",
-                default=True,
-            )
+            "Guardar": st.column_config.CheckboxColumn("¿Aprobar?", help="Selecciona para enviar al reporte oficial", default=True),
+            "IMPORTE TOTAL COMPRA": None,
+            "IMPORTE ICE": None,
+            "TASAS": None,
+            "SUBTOTAL": None,
+            "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA": None,
+            "CREDITO FISCAL": None
         },
-        disabled=["Fecha", "Razón Social", "NIT", "Nro Factura", "Monto (Bs)", "CUF / Autorización"],
+        disabled=["Fecha", "Razón Social", "NIT", "Nro Factura", "IMPORTE BASE CF", "CUF / Autorización"],
         use_container_width=True
     )
     
     col_btn1, col_btn2 = st.columns([1, 1])
     with col_btn1:
         if st.button("✅ CONFIRMAR Y ENVIAR A LA NUBE", type="primary", use_container_width=True):
-            # Filtramos solo los que quedaron marcados con True
             df_aprobados = edited_df[edited_df["Guardar"] == True].drop(columns=["Guardar"])
             
             if not df_aprobados.empty:
                 with st.spinner("Subiendo registros confirmados a Google Sheets..."):
                     guardar_historico(df_aprobados)
-                    # Pasan a ser "sesión oficial" para la vista de abajo
                     st.session_state.registros_sesion.extend(df_aprobados.to_dict('records'))
                 st.success(f"¡Éxito! Se consolidaron {len(df_aprobados)} facturas en el sistema oficial.")
             else:
                 st.warning("No aprobaste ninguna factura.")
                 
-            # Limpiamos la bandeja
             st.session_state.registros_pendientes = []
             st.rerun()
             
@@ -351,10 +369,12 @@ if st.session_state.registros_sesion:
     for i, reg in enumerate(st.session_state.registros_sesion):
         col_data, col_del = st.columns([12, 1])
         with col_data:
+            # La tarjeta visual ahora utiliza el IMPORTE BASE CF
+            monto_vista = reg.get('IMPORTE BASE CF', '')
             st.markdown(f"""
             <div class='factura-card'>
                 <span style='color: #741b28; font-weight: bold; font-size: 1.1em;'>{reg['Razón Social']}</span><br>
-                <small>Factura: {reg['Nro Factura']} | Monto: {reg['Monto (Bs)']} Bs. | NIT: {reg['NIT']}</small><br>
+                <small>Factura: {reg['Nro Factura']} | Importe Base CF: {monto_vista} Bs. | NIT: {reg['NIT']}</small><br>
                 <span class='cuf-text'>CUF: {reg['CUF / Autorización']}</span>
             </div>
             """, unsafe_allow_html=True)
@@ -368,8 +388,15 @@ if st.session_state.registros_sesion:
 
     st.markdown("#### 📥 Descargar Historial Completo Compilado de la Nube")
     df_historico_completo = cargar_historico()
-    st.dataframe(df_historico_completo, use_container_width=True)
     
+    # Se filtran las columnas SOLO para la vista en pantalla (para que se vea limpio)
+    columnas_vista = ["Fecha", "Razón Social", "NIT", "Nro Factura", "IMPORTE BASE CF", "CUF / Autorización"]
+    columnas_existentes = [col for col in columnas_vista if col in df_historico_completo.columns]
+    
+    if not df_historico_completo.empty:
+        st.dataframe(df_historico_completo[columnas_existentes], use_container_width=True)
+    
+    # Pero el archivo Excel se empaqueta con TODAS las columnas (incluyendo las ocultas)
     buff = BytesIO()
     with pd.ExcelWriter(buff, engine='openpyxl') as w:
         df_historico_completo.to_excel(w, index=False)
