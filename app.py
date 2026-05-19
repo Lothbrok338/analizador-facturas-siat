@@ -408,34 +408,27 @@ if st.session_state.registros_sesion:
     with pd.ExcelWriter(buff_tecnico, engine='openpyxl') as w:
         df_excel_final.to_excel(w, index=False)
         
-    # --- PREPARACIÓN DEL BOTÓN 2: REPLICANTE DE FORMATO DE IMPORTACIÓN SAP ---
+    # --- PREPARACIÓN DEL BOTÓN 2: REPLICANTE DE FORMATO DE IMPORTACIÓN SAP EXACTO ---
     columnas_sap = [
-        "FECHA DE LA FACTURA", "NIT DEL PROVEEDOR", "NUMERO DE LA FACTURA",
-        "NRO. AUTORIZACION/CUF", "CODIGO CONTROL", "NUMERO DUI/DIM",
-        "FECHA DE PAGO (solo para DUI/DIM)", "IMPORTE TOTAL COMPRA (A)",
-        "IMPORTE ICE (B)", "IEHD (C)", "IPJ (D)", "TASAS (E)", "NO SUJETAS A CF (F)",
-        "EXENTAS (G)", "TASA CERO (H)", "SUBTOTAL (I=A-B-C-D-E-F-G-H)",
-        "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA (J)", "GIF (K)",
-        "IMPORTE BASE CF (L=I-J-K)", "CREDITO FISCAL", "TIPO DE COMPRA",
-        "RAZON SOCIAL PROVEEDOR", "CENTRO DE COSTO/ORDEN ESTADISTICO",
-        "CUENTA GASTO / ACTIVO", "CONCEPTO / DETALLE", "REFERENCIA",
-        "ASIGNACION", "TIPO DE RETENCION"
+        "Sociedad", "Código del Proveedor", "Fecha de Documento", "Fecha de Contabilización",
+        "Número de Factura", "Número de Autorización", "Código de Control", "Condiciones de pago",
+        "Razon Social", "NIT", "CUF", "MONTO RECIBO FACTURA (BOB)"
     ]
     df_sap = pd.DataFrame(columns=columnas_sap)
     
     if not df_historico_completo.empty:
-        df_sap["FECHA DE LA FACTURA"] = df_historico_completo.get("Fecha", "")
-        df_sap["NIT DEL PROVEEDOR"] = df_historico_completo.get("NIT", "")
-        df_sap["NUMERO DE LA FACTURA"] = df_historico_completo.get("Nro Factura", "")
-        df_sap["NRO. AUTORIZACION/CUF"] = df_historico_completo.get("CUF / Autorización", "")
-        df_sap["IMPORTE TOTAL COMPRA (A)"] = df_historico_completo.get("IMPORTE TOTAL COMPRA", 0)
-        df_sap["IMPORTE ICE (B)"] = df_historico_completo.get("IMPORTE ICE", 0)
-        df_sap["TASAS (E)"] = df_historico_completo.get("TASAS", 0)
-        df_sap["SUBTOTAL (I=A-B-C-D-E-F-G-H)"] = df_historico_completo.get("SUBTOTAL", 0)
-        df_sap["DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA (J)"] = df_historico_completo.get("DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA", 0)
-        df_sap["IMPORTE BASE CF (L=I-J-K)"] = df_historico_completo.get("IMPORTE BASE CF", 0)
-        df_sap["CREDITO FISCAL"] = df_historico_completo.get("CREDITO FISCAL", 0)
-        df_sap["RAZON SOCIAL PROVEEDOR"] = df_historico_completo.get("Razón Social", "")
+        df_sap["Sociedad"] = "BO01"
+        df_sap["Código del Proveedor"] = ""
+        df_sap["Fecha de Documento"] = df_historico_completo.get("Fecha", "")
+        df_sap["Fecha de Contabilización"] = ""
+        df_sap["Número de Factura"] = df_historico_completo.get("Nro Factura", "")
+        df_sap["Número de Autorización"] = ""
+        df_sap["Código de Control"] = df_historico_completo.get("CODIGO CONTROL", "") 
+        df_sap["Condiciones de pago"] = "Z000"
+        df_sap["Razon Social"] = df_historico_completo.get("Razón Social", "")
+        df_sap["NIT"] = df_historico_completo.get("NIT", "")
+        df_sap["CUF"] = df_historico_completo.get("CUF / Autorización", "")
+        df_sap["MONTO RECIBO FACTURA (BOB)"] = df_historico_completo.get("SUBTOTAL", 0)
         
     df_sap = df_sap.fillna("")
 
