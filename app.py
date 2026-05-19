@@ -12,6 +12,13 @@ from gspread_dataframe import set_with_dataframe, get_as_dataframe
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Gestión Contable | UNIVALLE", page_icon="🎓", layout="wide")
 
+# --- COLECION DE COLUMNAS CONFIGURADAS ---
+ORDEN_COLUMNAS_SISTEMA = [
+    "Fecha", "Razón Social", "NIT", "Nro Factura", "CUF / Autorización",
+    "IMPORTE TOTAL COMPRA", "IMPORTE ICE", "TASAS", "SUBTOTAL", 
+    "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA", "IMPORTE BASE CF", "CREDITO FISCAL"
+]
+
 # --- CONEXIÓN A GOOGLE SHEETS ---
 @st.cache_resource
 def init_connection():
@@ -23,13 +30,6 @@ def init_connection():
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     client = gspread.authorize(creds)
     return client.open_by_url(st.secrets["spreadsheet_url"])
-
-# --- COLECION DE COLUMNAS CONFIGURADAS ---
-ORDEN_COLUMNAS_SISTEMA = [
-    "Fecha", "Razón Social", "NIT", "Nro Factura", "CUF / Autorización",
-    "IMPORTE TOTAL COMPRA", "IMPORTE ICE", "TASAS", "SUBTOTAL", 
-    "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA", "IMPORTE BASE CF", "CREDITO FISCAL"
-]
 
 # --- FUNCIONES DE BASE DE DATOS EN LA NUBE ---
 @st.cache_data(ttl=600)
@@ -408,35 +408,53 @@ if st.session_state.registros_sesion:
     with pd.ExcelWriter(buff_tecnico, engine='openpyxl') as w:
         df_excel_final.to_excel(w, index=False)
         
-    # --- PREPARACIÓN DEL BOTÓN 2: REPLICANTE DE FORMATO DE IMPORTACIÓN SAP EXACTO ---
+    # --- PREPARACIÓN DEL BOTÓN 2: FORMATO SAP CON COLUMNA ADICIONAL AL FINAL ---
     columnas_sap = [
         "Sociedad", "Código del Proveedor", "Fecha de Documento", "Fecha de Contabilización",
         "Número de Factura", "Número de Autorización", "Código de Control", "Condiciones de pago",
-        "Razon Social", "NIT", "CUF", "MONTO RECIBO FACTURA (BOB)"
+        "Razon Social", "NIT", "CUF", "MONTO RECIBO FACTURA (BOB)", "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA"
     ]
     df_sap = pd.DataFrame(columns=columnas_sap)
     
     if not df_historico_completo.empty:
-        df_sap["Sociedad"] = "BO01"
-        df_sap["Código del Proveedor"] = ""
-        df_sap["Fecha de Documento"] = df_historico_completo.get("Fecha", "")
-        df_sap["Fecha de Contabilización"] = ""
-        df_sap["Número de Factura"] = df_historico_completo.get("Nro Factura", "")
-        df_sap["Número de Autorización"] = ""
-        df_sap["Código de Control"] = df_historico_completo.get("CODIGO CONTROL", "") 
-        df_sap["Condiciones de pago"] = "Z000"
-        df_sap["Razon Social"] = df_historico_completo.get("Razón Social", "")
-        df_sap["NIT"] = df_historico_completo.get("NIT", "")
-        df_sap["CUF"] = df_historico_completo.get("CUF / Autorización", "")
-        df_sap["MONTO RECIBO FACTURA (BOB)"] = df_historico_completo.get("SUBTOTAL", 0)
+        num_filas = len(df_historico_completo)
         
+        # Mapeo blindado fila por fila
+        df_sap["Sociedad"] = ["BO01"] * num_filas
+        df_sap["Código del Proveedor"] = [""] * num_filas
+        df_sap["Fecha de Documento"] = df_historico_completo["Fecha"].values
+        df_sap["Fecha de Contabilización"] = [""] * num_filas
+        df_sap["Número de Factura"] = df_historico_completo["Nro Factura"].values
+        df_sap["Número de Autorización"] = [""] * num_filas
+        
+        if "CODIGO CONTROL" in df_historico_completo.columns:
+            df_sap["Código de Control"] = df_historico_completo["CODIGO CONTROL"].values
+        else:
+            df_sap["Código de Control"] = [""] * num_filas
+            
+        df_sap["Condiciones de pago"] = ["Z000"] * num_filas
+        df_sap["Razon Social"] = df_historico_completo["Razón Social"].values
+        df_sap["NIT"] = df_historico_completo["NIT"].values
+        df_sap["CUF"] = df_historico_completo["CUF / Autorización"].values
+        
+        if "SUBTOTAL" in df_historico_completo.columns:
+            df_sap["MONTO RECIBO FACTURA (BOB)"] = df_historico_completo["SUBTOTAL"].values
+        else:
+            df_sap["MONTO RECIBO FACTURA (BOB)"] = [0] * num_filas
+
+        # Nueva columna mapeada al final de la estructura de SAP
+        if "DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA" in df_historico_completo.columns:
+            df_sap["DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA"] = df_historico_completo["DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA"].values
+        else:
+            df_sap["DESCUENTOS/BONIFICACIONES/REBAJAS SUJETAS AL IVA"] = [0] * num_filas
+            
     df_sap = df_sap.fillna("")
 
     buff_sap = BytesIO()
     with pd.ExcelWriter(buff_sap, engine='openpyxl') as w:
         df_sap.to_excel(w, index=False)
     
-    # DESPLIEGUE GEOMÉTRICO: Los dos botones alineados a la misma altura
+    # DESPLIEGUE GEOMÉTRICO DE DOS BOTONES
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
         st.download_button(
