@@ -46,6 +46,20 @@ def guardar_historico(df_nuevo):
     set_with_dataframe(ws, df_final)
     cargar_historico.clear()
 
+# FUNCIÓN CRÍTICA: Elimina de Google Sheets y limpia memoria caché
+def eliminar_de_historico_nube(cuf_eliminar):
+    try:
+        sheet = init_connection()
+        ws = sheet.worksheet("HISTORICO_FACTURAS")
+        celda = ws.find(str(cuf_eliminar).strip())
+        if celda:
+            ws.delete_rows(celda.row)
+            cargar_historico.clear()  # Forzar actualización inmediata de la caché
+            return True
+    except:
+        pass
+    return False
+
 @st.cache_data(ttl=600)
 def cargar_siat_maestro():
     try:
@@ -151,7 +165,6 @@ st.divider()
 base_siat = cargar_siat_maestro()
 
 if base_siat is not None:
-    # --- IMPLEMENTACIÓN DE PESTAÑAS MÓDULO MANUAL / QR ---
     tab1, tab2 = st.tabs(["📥 Consolidación por Enlaces (QR)", "🔍 Búsqueda y Registro Manual"])
     
     # PESTAÑA 1: PROCESAMIENTO POR QR / URL
@@ -212,26 +225,33 @@ if base_siat is not None:
                 if duplicados > 0:
                     st.markdown(f"<div class='alerta-duplicado'>⚠️ SE INHIBIERON {duplicados} FACTURAS REPETIDAS (Ya se encuentran registradas en la nube).</div>", unsafe_allow_html=True)
 
-    # PESTAÑA 2: MOTOR DE BÚSQUEDA MANUAL DIRECTO
+    # PESTAÑA 2: MOTOR DE BÚSQUEDA MANUAL MEJORADO (FLEXIBLE O CONDICIONAL)
     with tab2:
         st.markdown("### Búsqueda de Comprobante en Base Maestra")
         col_f, col_n = st.columns(2)
         with col_f:
-            nro_factura_in = st.text_input("Número de Factura:", placeholder="Ej. 4032", key="input_nro_fac")
+            nro_factura_in = st.text_input("Número de Factura (Opcional):", placeholder="Ej. 4032", key="input_nro_fac")
         with col_n:
-            nit_in = st.text_input("NIT del Proveedor (Opcional para precisar):", placeholder="Ej. 1020304029", key="input_nit")
+            nit_in = st.text_input("NIT del Proveedor (Opcional):", placeholder="Ej. 1020304029", key="input_nit")
             
         if st.button("🔍 LOCALIZAR Y CONSOLIDAR REGISTRO", type="primary", use_container_width=True, key="btn_manual"):
-            if not nro_factura_in.strip():
-                st.warning("Por favor, introduzca un número de factura válido.")
+            nro_val = nro_factura_in.strip()
+            nit_val = nit_in.strip()
+            
+            if not nro_val and not nit_val:
+                st.warning("⚠️ Por favor, introduzca al menos un criterio para iniciar la búsqueda (Número de Factura o NIT).")
             else:
-                # Normalización técnica de tipos para evitar fallos de flotantes en Pandas
+                # Normalización técnica de columnas de la base maestra
                 base_siat['NUMERO FACTURA_STR'] = base_siat['NUMERO FACTURA'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-                match_manual = base_siat[base_siat['NUMERO FACTURA_STR'] == nro_factura_in.strip()]
+                base_siat['NIT_STR'] = base_siat['NIT PROVEEDOR'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
                 
-                if nit_in.strip() != "" and not match_manual.empty:
-                    base_siat['NIT_STR'] = base_siat['NIT PROVEEDOR'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-                    match_manual = match_manual[match_manual['NIT_STR'] == nit_in.strip()]
+                # Filtrado flexible dependiente de qué campo completó el usuario
+                if nro_val and nit_val:
+                    match_manual = base_siat[(base_siat['NUMERO FACTURA_STR'] == nro_val) & (base_siat['NIT_STR'] == nit_val)]
+                elif nro_val:
+                    match_manual = base_siat[base_siat['NUMERO FACTURA_STR'] == nro_val]
+                else:
+                    match_manual = base_siat[base_siat['NIT_STR'] == nit_val]
                 
                 if match_manual.empty:
                     st.error("No se localizó ningún registro coincidente en la Base Maestra SIAT con los datos proveídos.")
@@ -270,24 +290,35 @@ if base_siat is not None:
                     
                     if nuevos_m_df:
                         guardar_historico(pd.DataFrame(nuevos_m_df))
-                        st.success(f"✅ Factura Nro {nro_factura_in} localizada y agregada de forma exitosa al archivo central de la nube.")
+                        st.success(f"✅ Se procesaron {agregados_m} registros coincidentes de forma exitosa hacia el archivo central.")
                     
-                    if duplicados_m > 0 and agregados_m == 0:
-                        st.markdown(f"<div class='alerta-duplicado'>⚠️ CONTROL DE CONTROL: El documento fiscal consultado ya fue procesado con anterioridad y reside en el histórico.</div>", unsafe_allow_html=True)
+                    if duplicados_m > 0:
+                        st.markdown(f"<div class='alerta-duplicado'>⚠️ CONTROL DE DUPLICADOS: Se omitieron {duplicados_m} registros coincidentes por ya existir en el histórico.</div>", unsafe_allow_html=True)
 
-# --- REPORTE INTEGRADO ---
+# --- REPORTE CON BOTÓN DE ELIMINACIÓN TOTAL ---
 if st.session_state.registros_sesion:
     st.divider()
-    st.write("### 📊 Historial de Datos Procesados en la Sesión Actual")
+    st.write("### 📊 Registros Procesados en la Sesión Actual")
     
+    # Iteración inversa para evitar problemas de índice al eliminar elementos de la lista en vivo
     for i, reg in enumerate(st.session_state.registros_sesion):
-        st.markdown(f"""
-        <div class='factura-card'>
-            <span style='color: #741b28; font-weight: bold; font-size: 1.1em;'>{reg['Razón Social']}</span><br>
-            <small>Factura: {reg['Nro Factura']} | Monto: {reg['Monto (Bs)']} Bs. | NIT: {reg['NIT']}</small><br>
-            <span class='cuf-text'>CUF: {reg['CUF / Autorización']}</span>
-        </div>
-        """, unsafe_allow_html=True)
+        col_data, col_del = st.columns([12, 1])
+        with col_data:
+            st.markdown(f"""
+            <div class='factura-card'>
+                <span style='color: #741b28; font-weight: bold; font-size: 1.1em;'>{reg['Razón Social']}</span><br>
+                <small>Factura: {reg['Nro Factura']} | Monto: {reg['Monto (Bs)']} Bs. | NIT: {reg['NIT']}</small><br>
+                <span class='cuf-text'>CUF: {reg['CUF / Autorización']}</span>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_del:
+            st.write("")
+            # El botón ahora ejecuta la remoción física en Google Sheets y refresca la app
+            if st.button("✖", key=f"del_{i}", help="Eliminar permanentemente de la pantalla y de Google Sheets"):
+                with st.spinner("Removiendo de la base de datos..."):
+                    eliminar_de_historico_nube(reg['CUF / Autorización'])
+                st.session_state.registros_sesion.pop(i)
+                st.rerun()
 
     st.markdown("#### 📥 Descargar Historial Completo Compilado de la Nube")
     df_historico_completo = cargar_historico()
